@@ -48,7 +48,7 @@ const (
 	kube151WorkerTmpl   = srcSh + "kube_worker_1_5_1.tmpl"
 	kube151Remediation  = srcSh + "kubecis_1_5_1.rem"
 	kube160MasterTmpl   = srcSh + "kube_master_1_6_0.tmpl"
-	kube160WorkerTmpl   = srcSh + "kube_worker_1_6_0.tmpl"
+	kube160WorkerTmpl   = dstSh + "cis-1.6.0/runner_1_6_0.tmpl"
 	kube160Remediation  = srcSh + "kubecis_1_6_0.rem"
 	kubeGKEMasterTmpl   = srcSh + "kube_master_gke_1_0_0.tmpl"
 	kubeGKEWorkerTmpl   = srcSh + "kube_worker_gke_1_0_0.tmpl"
@@ -60,7 +60,7 @@ const (
 	kubeOC45WorkerTmpl  = srcSh + "kube_worker_ocp_4_5.tmpl"
 	kubeOC45Remediation = srcSh + "kubecis_ocp_4_5.rem"
 	masterScriptSh      = dstSh + "kube_master.sh"
-	workerScriptSh      = dstSh + "kube_worker.sh"
+	workerScriptSh      = dstSh + "cis-1.6.0/kube_worker.sh"
 	checkKubeVersion    = srcSh + "check_kube_version.sh"
 	hostTimerStart      = time.Second * 10
 	containerTimerStart = time.Second * 10
