@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 
 # Source the logger and utils scripts
-source ../utils/logger.sh
-source ../utils/utils.sh
-source ../utils/style.sh
+. ../utils/logger.sh
+. ../utils/utils.sh
+. ../utils/style.sh
 
 level2="1.3.6, 2.7, 3.1.1, 3.2.2, 4.2.9, 5.2.9, 5.3.2, 5.4.2, 5.5.1, 5.7.2, 5.7.3, 5.7.4"
 not_scored="1.1.9, 1.1.10, 1.1.20, 1.1.21, 1.2.1, 1.2.10, 1.2.12, 1.2.13, 1.2.33, 1.2.34, 1.2.35, 1.3.1, 2.7, 3.1.1, 3.2.2, 4,2.8, 4.2.9, 4.2.13, 5.1.1, 5.1.2, 5.1.3, 5.1.4, 5.1.6, 5.2.1, 5.2.6, 5.2.7, 5.2.8, 5.2.9, 5.3.1, 5.4.1, 5.4.2, 5.5.1, 5.7.1, 5.7.2, 5.7.3"
@@ -26,30 +26,34 @@ yell "# ------------------------------------------------------------------------
 # security concerns slow down your CI/CD processes.
 # ------------------------------------------------------------------------------"
 
-
 run_check() {
   local RUN_FOLDER=$1
 
-  find $RUN_FOLDER -type f -name "*.yaml" | while read -r YAML_FILE; do
+  find "$RUN_FOLDER" -type f -name "*.yaml" | while read -r YAML_FILE; do
       # Get the number of groups
       NUM_GROUPS=$(yq e '.groups | length' "$YAML_FILE")
 
-      # Iterate over each group
-      for (( group_index=0; group_index<NUM_GROUPS; group_index++ )); do
+      # Iterate over each group using a while loop
+      group_index=0
+      while [ $group_index -lt $NUM_GROUPS ]; do
 
         # Get the number of checks in the current group
         NUM_CHECKS=$(yq e ".groups[$group_index].checks | length" "$YAML_FILE")
 
-        # Iterate over each check in the current group
-        for (( check_index=0; check_index<NUM_CHECKS; check_index++ )); do
+        # Iterate over each check in the current group using a while loop
+        check_index=0
+        while [ $check_index -lt $NUM_CHECKS ]; do
           id=$(yq e ".groups[$group_index].checks[$check_index].id" "$YAML_FILE")
           title=$(yq e ".groups[$group_index].checks[$check_index].title" "$YAML_FILE")
           audit=$(yq e ".groups[$group_index].checks[$check_index].audit" "$YAML_FILE")
           remediation=$(yq e ".groups[$group_index].checks[$check_index].remediation" "$YAML_FILE")
 
-
           eval "$audit"
+
+          check_index=$((check_index + 1))
         done
+
+        group_index=$((group_index + 1))
       done
   done
 }
