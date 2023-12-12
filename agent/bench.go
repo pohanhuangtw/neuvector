@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"text/template"
 	"time"
+	"gopkg.in/yaml.v2"
+	"path/filepath"
 
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
@@ -49,7 +51,7 @@ const (
 	kube151Remediation  = srcSh + "kubecis_1_5_1.rem"
 	kube160MasterTmpl   = srcSh + "kube_master_1_6_0.tmpl"
 	kube160WorkerTmpl   = dstSh + "cis-1.6.0/runner_1_6_0.tmpl"
-	kube160Remediation  = srcSh + "kubecis_1_6_0.rem"
+	kube160Remediation  = dstSh + "cis-1.6.0/"
 	kubeGKEMasterTmpl   = srcSh + "kube_master_gke_1_0_0.tmpl"
 	kubeGKEWorkerTmpl   = srcSh + "kube_worker_gke_1_0_0.tmpl"
 	kubeGKERemediation  = srcSh + "kubecis_gke_1_0_0.rem"
@@ -133,6 +135,19 @@ type KubeCisReplaceOpts struct {
 	Replace_etcd_cmd      string
 	Replace_kubelet_cmd   string
 	Replace_proxy_cmd     string
+}
+
+type Check struct {
+    ID          string `yaml:"id"`
+    Remediation string `yaml:"remediation"`
+}
+
+type Group struct {
+    Checks []Check `yaml:"checks"`
+}
+
+type YamlFile struct {
+    Groups []Group `yaml:"groups"`
 }
 
 func newBench(platform, flavor string) *Bench {
@@ -364,7 +379,7 @@ func (b *Bench) doKubeBench(masterScript, workerScript, remediation string) (err
 		if errWorker != nil {
 			log.WithFields(log.Fields{
 				"error": errWorker, "script": workerScriptSh,
-			}).Error("Failed to run kubernetes worker benchmark checks")
+			}).Info("XXXXX Failed to run kubernetes worker benchmark checks")
 
 			b.logBenchFailure(benchPlatKube, share.BenchStatusKubeWorkerFail)
 			b.putBenchReport(Host.ID, share.BenchKubeWorker, nil, share.BenchStatusKubeWorkerFail)
@@ -1163,13 +1178,19 @@ func (b *Bench) runKubeBench(bench share.BenchType, script string) ([]byte, erro
 	}
 
 	var errb, outb bytes.Buffer
-	args := []string{
-		system.NSActRun, "-f", script,
-		"-m", global.SYS.GetMountNamespacePath(1),
-		"-n", global.SYS.GetNetNamespacePath(1),
+	var cmd *exec.Cmd 
+	var config string
+
+	// change the code.
+	if bench == share.BenchKubeMaster {
+		config = "master"
+	} else if bench == share.BenchKubeWorker {
+		config = "worker"
 	}
+
 	log.WithFields(log.Fields{"type": bench}).Debug("Running Kubernetes CIS bench")
-	cmd := exec.Command(system.ExecNSTool, args...)
+	cmd = exec.Command("sh", script, config)
+	// cmd := exec.Command(system.ExecNSTool, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
@@ -1240,7 +1261,43 @@ func (b *Bench) getKubeVersion() string {
 	return string(out)
 }
 
-func (b *Bench) loadRemediation(remediation string) map[string]string {
+func (b *Bench) loadRemediation(path string) map[string]string {
+    remediationMap := make(map[string]string)
+
+    filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            log.WithFields(log.Fields{"error": err}).Error("Error encountered while walking through the path")
+            return err // return the error encountered
+        }
+
+        if !info.IsDir() && filepath.Ext(path) == ".yaml" {
+            fileContent, err := ioutil.ReadFile(path)
+            if err != nil {
+                log.WithFields(log.Fields{"error": err}).Error("Error reading file")
+                return err // return the error encountered
+            }
+
+            var yamlFile YamlFile
+            err = yaml.Unmarshal(fileContent, &yamlFile)
+            if err != nil {
+                log.WithFields(log.Fields{"error": err}).Error("Error unmarshalling YAML file")
+                return err // return the error encountered
+            }
+
+            for _, group := range yamlFile.Groups {
+                for _, check := range group.Checks {
+                    remediationMap[check.ID] = check.Remediation
+                }
+            }
+        }
+        return nil // no error, return nil
+    })
+
+    return remediationMap
+}
+
+
+func (b *Bench) loadRemediation1(remediation string) map[string]string {
 	r := make(map[string]string)
 
 	dat, err := ioutil.ReadFile(remediation)

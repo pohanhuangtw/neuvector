@@ -4,6 +4,11 @@ FROM neuvector/${BASE_PREFIX}enforcer_base:${BASE_IMAGE_TAG}
 
 COPY stage /
 
+RUN apk update && \
+    apk add --no-cache wget && \
+    wget https://github.com/mikefarah/yq/releases/download/v4.6.1/yq_linux_amd64 -O /usr/bin/yq && \
+    chmod +x /usr/bin/yq
+
 # Labels for redhat
 ARG NV_TAG
 LABEL name="enforcer" \
