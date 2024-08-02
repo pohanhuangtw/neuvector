@@ -81,6 +81,8 @@ const (
 	containerTimerStart = time.Second * 10
 	kubeTimerStart      = time.Second * 10
 	scriptTimerStart    = time.Second * 1
+	cmdK3sServer        = "k3s-server"
+	cmdK3sAgent         = "k3s-agent"
 	cmdKubeApiServer    = "kube-apiserver"
 	cmdKubeManager      = "kube-controller-manager"
 	cmdKubeScheduler    = "kube-scheduler"
@@ -138,6 +140,7 @@ type Bench struct {
 	dockerCISVer    string
 	taskScanner     *TaskScanner
 	cisYAMLMode     bool
+	isK3s           bool
 }
 
 type DockerReplaceOpts struct {
@@ -549,7 +552,18 @@ func (b *Bench) RerunKube(cmd, cmdRemap string, forced bool) {
 	}
 
 	_, b.isKubeMaster = b.kubeCisCmds[cmdKubeApiServer]
+	if !b.isKubeMaster {
+		if _, b.isKubeMaster = b.kubeCisCmds[cmdK3sServer]; b.isKubeMaster {
+			b.isK3s = true
+		}
+	}
+
 	_, b.isKubeWorker = b.kubeCisCmds[cmdKubelet]
+	if !b.isKubeWorker {
+		if _, b.isKubeWorker = b.kubeCisCmds[cmdK3sAgent]; b.isKubeWorker {
+			b.isK3s = true
+		}
+	}
 
 	var sched bool
 

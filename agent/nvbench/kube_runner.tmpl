@@ -35,7 +35,7 @@ yell "# ------------------------------------------------------------------------
 run_check() {
   local RUN_FOLDER=$1
 
-  find $RUN_FOLDER -type f -name "*.yaml" | sort | while read -r YAML_FILE; do
+  for YAML_FILE in $(find "$RUN_FOLDER" -type f -name "*.yaml" | sort); do
     # Get the number of groups
     NUM_GROUPS=$(yq e '.groups | length' "$YAML_FILE")
 
@@ -62,13 +62,13 @@ run_check() {
             profile=$(yq e ".groups[$group_index].checks[$check_index].profile" "$YAML_FILE")
             scored=$(yq e ".groups[$group_index].checks[$check_index].scored" "$YAML_FILE")
 
-            if [ "$profile" == "Level 2" ]; then
+            if [ "$profile" = "Level 2" ]; then
                 level2=$id
             else
                 level2=""
             fi
 
-            if [ "$scored" == false ]; then
+            if [ "$scored" = false ]; then
                 not_scored=$id
             else
                 not_scored=""
