@@ -60,6 +60,7 @@ const (
 	kube160YAMLFolder   = dstYaml + "cis-1.6.0/"
 	kube123YAMLFolder   = dstYaml + "cis-1.23/"
 	kube124YAMLFolder   = dstYaml + "cis-1.24/"
+	k3s180YAMLFolder    = dstYaml + "cis-k3s-1.8.0/"
 	kube180YAMLFolder   = dstYaml + "cis-1.8.0/"
 	rh140YAMLFolder     = dstYaml + "rh-1.4.0/"
 	gke140YAMLFolder    = dstYaml + "gke-1.4.0/"
@@ -322,6 +323,11 @@ func (b *Bench) BenchLoop() {
 						workerScript = kubeOC43WorkerTmpl
 						remediation = kubeOC43Remediation
 					}
+				} else if b.isK3s {
+					b.kubeCISVer = "K3S-1.8.0"
+					masterScript = kubeRunnerTmpl
+					workerScript = kubeRunnerTmpl
+					remediation = k3s180YAMLFolder
 				} else {
 					kVer, err := version.NewVersion(k8sVer)
 					if err != nil {

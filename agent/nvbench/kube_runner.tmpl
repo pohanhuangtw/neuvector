@@ -104,4 +104,28 @@ elif echo "$folder" | grep -q 'worker$'; then
     fi
 fi
 
+# In k3s, there is no specific YAML file for API server configuration as in Kubernetes.
+# Instead, k3s components are configured through various mechanisms.
+# The primary configuration file is /etc/rancher/k3s/config.yaml.
+# If /etc/rancher/k3s/config.yaml does not exist, NV will use the configuration files in the /etc/rancher/k3s/config.yaml.d directory.
+if echo "$folder" | grep -q 'k3s'; then
+    CONFIG_FILE="/proc/1/root/etc/rancher/k3s/config.yaml"
+    CONFIG_DIR="/proc/1/root/etc/rancher/k3s/config.yaml.d"
+    CONFIG_FILES=""
+
+    # Check if the main configuration file exists and add it to the list
+    if [ -f "$CONFIG_FILE" ]; then
+        CONFIG_FILES="$CONFIG_FILE"
+    fi
+
+    # Check if the configuration directory exists and add its files to the list
+    if [ -d "$CONFIG_DIR" ]; then
+        for file in "$CONFIG_DIR"/*.yaml; do
+            if [ -e "$file" ]; then
+                CONFIG_FILES="$CONFIG_FILES $file"
+            fi
+        done
+    fi
+fi
+
 run_check $folder

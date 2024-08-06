@@ -53,3 +53,35 @@ append_prefix() {
   # Concatenate and return the result
   echo "$prefix/$file"
 }
+
+
+# Parsing the command in k3s, we need to use the journalctl
+get_command_args_from_journal() {
+    echo "$(journalctl -D $CONFIG_PREFIX/var/log/journal -u k3s | grep 'Running $1' | tail -n1)" | sed 's/.*Running $1 //' 
+}
+
+#get an argument value from command line
+get_argument_value_from_journal() {
+    CMD="$1"
+    OPTION="$2"
+
+    get_command_args_from_journal "$CMD" |
+    sed \
+        -e 's/\-\-/\n--/g' \
+        |
+    grep "^${OPTION}" |
+    sed \
+        -e "s/^${OPTION}[= ]//g"
+}
+
+#check whether an argument exist in command line
+check_argument_from_journal() {
+    CMD="$1"
+    OPTION="$2"
+
+    get_command_args_from_journal "$CMD" |
+    sed \
+        -e 's/\-\-/\n--/g' \
+        |
+    grep "^${OPTION}"
+}
