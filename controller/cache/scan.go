@@ -1448,7 +1448,9 @@ func (m CacheMethod) GetVulnerabilityReport(id, showTag string) ([]*api.RESTVuln
 
 		localVulTraits := scanUtils.ExtractVulnerability(reportVuls)
 		vpf.FilterVulTraits(localVulTraits, info.idns)
-		vuls := scanUtils.FillVulTraits(sdb.CVEDB, info.baseOS, localVulTraits, showTag, false)
+		// TODO@@
+		vulMap := scanUtils.ScanVulnerabilitiesToMap(reportVuls)
+		vuls := scanUtils.FillVulTraits(sdb.CVEDB, info.baseOS, localVulTraits, showTag, false, vulMap)
 		modules := make([]*api.RESTScanModule, len(reportModules))
 		for i, m := range reportModules {
 			modules[i] = scanUtils.ScanModule2REST(m)

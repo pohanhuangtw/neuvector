@@ -582,9 +582,10 @@ func getAllVulnerabilities(acc *access.AccessControl) (map[string]*vulAsset, *ap
 			setImagePolicyMode(img2mode, wl.ImageID, wl.PolicyMode)
 
 			reportVuls, _ := db.GetVulnerability(wl.ID)
+			// TODO@@
 			localVulTraits := scanUtils.ExtractVulnerability(reportVuls)
-
-			vuls := scanUtils.FillVulTraits(sdb.CVEDB, wl.BaseOS, localVulTraits, "", false)
+			vulMap := scanUtils.ScanVulnerabilitiesToMap(reportVuls)
+			vuls := scanUtils.FillVulTraits(sdb.CVEDB, wl.BaseOS, localVulTraits, "", false, vulMap)
 			if vuls != nil {
 				for _, vul := range vuls {
 					va := addVulAsset(all, vul)
@@ -600,9 +601,10 @@ func getAllVulnerabilities(acc *access.AccessControl) (map[string]*vulAsset, *ap
 		for _, n := range nodes {
 
 			reportVuls, _ := db.GetVulnerability(n.ID)
+			// TODO@@
 			localVulTraits := scanUtils.ExtractVulnerability(reportVuls)
-
-			vuls := scanUtils.FillVulTraits(sdb.CVEDB, n.BaseOS, localVulTraits, "", false)
+			vulMap := scanUtils.ScanVulnerabilitiesToMap(reportVuls)
+			vuls := scanUtils.FillVulTraits(sdb.CVEDB, n.BaseOS, localVulTraits, "", false, vulMap)
 			if vuls != nil {
 				for _, vul := range vuls {
 					va := addVulAsset(all, vul)

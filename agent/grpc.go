@@ -49,6 +49,7 @@ func (ss *ScanService) setScanDone(id string) {
 	ss.scanning.Remove(id)
 }
 
+// TODO@@ use the SBOM to scan by trivy
 func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningRequest) (*share.ScanData, error) {
 	// Use Info log level so we by default log it's scanning
 	log.WithFields(log.Fields{"id": req.ID}).Info("")

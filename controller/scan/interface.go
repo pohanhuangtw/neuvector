@@ -457,8 +457,10 @@ func (m *scanMethod) GetRegistryVulnerabilities(name string, vpf scanUtils.VPFIn
 				refreshScanCache(rs, id, sum, c, vpf)
 
 				reportVuls, _ := db.GetVulnerability(id)
+				// TODO@@
 				localVulTraits := scanUtils.ExtractVulnerability(reportVuls)
-				vmap[id] = scanUtils.FillVulTraits(sdb.CVEDB, sum.BaseOS, localVulTraits, showTag, false)
+				vulMap := scanUtils.ScanVulnerabilitiesToMap(reportVuls)
+				vmap[id] = scanUtils.FillVulTraits(sdb.CVEDB, sum.BaseOS, localVulTraits, showTag, false, vulMap)
 				nmap[id] = images2IDNames(rs, sum)
 			}
 		}
@@ -469,8 +471,10 @@ func (m *scanMethod) GetRegistryVulnerabilities(name string, vpf scanUtils.VPFIn
 					refreshScanCache(rs, id, sum, c, vpf)
 
 					reportVuls, _ := db.GetVulnerability(id)
+					// TODO@@
 					localVulTraits := scanUtils.ExtractVulnerability(reportVuls)
-					vmap[id] = scanUtils.FillVulTraits(sdb.CVEDB, sum.BaseOS, localVulTraits, showTag, false)
+					vulMap := scanUtils.ScanVulnerabilitiesToMap(reportVuls)
+					vmap[id] = scanUtils.FillVulTraits(sdb.CVEDB, sum.BaseOS, localVulTraits, showTag, false, vulMap)
 					nmap[id] = images2IDNames(rs, sum)
 				}
 			}
@@ -593,9 +597,11 @@ func (m *scanMethod) GetRegistryImageReport(name, id string, vpf scanUtils.VPFIn
 				return nil, err
 			}
 
+			// TODO@@
 			localVulTraits := scanUtils.ExtractVulnerability(reportVuls)
 			vpf.FilterVulTraits(localVulTraits, images2IDNames(rs, sum))
-			rrpt.Vuls = scanUtils.FillVulTraits(sdb.CVEDB, sum.BaseOS, localVulTraits, showTag, false)
+			vulMap := scanUtils.ScanVulnerabilitiesToMap(reportVuls)
+			rrpt.Vuls = scanUtils.FillVulTraits(sdb.CVEDB, sum.BaseOS, localVulTraits, showTag, false, vulMap)
 
 			// The checks are still to be filtered
 			rrpt.Checks = scanUtils.ImageBench2REST(c.cmds, c.secrets, c.setIDPerm, tagMap)

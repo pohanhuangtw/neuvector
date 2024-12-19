@@ -102,6 +102,9 @@ func ScanVul2REST(cvedb CVEDBType, baseOS string, vul *share.ScanVulnerability) 
 		InBaseImage:    vul.InBase,
 	}
 
+	// use log to print the error, because this function is used in controller
+	log.WithField("vul", vul).Info("XXXXX ScanVul2REST")
+
 	// Fill verbose vulnerability info, new scanner should return DBKey for each cve.
 	// The guess work based on baseOS is only needed for upgrade from pre-5.0 cases.
 	if vul.DBKey != "" {
@@ -293,6 +296,7 @@ func ScanRepoResult2REST(result *share.ScanResult, tagMap map[string][]string) *
 	rvuls := make([]*api.RESTVulnerability, len(result.Vuls))
 	for i, vul := range result.Vuls {
 		rvuls[i] = ScanVul2REST(sdb.CVEDB, result.Namespace, vul)
+		log.WithField("rvuls[i]", rvuls[i]).Info("XXXXX ScanRepoResult2REST")
 	}
 	rmods := make([]*api.RESTScanModule, len(result.Modules))
 	for i, m := range result.Modules {
@@ -369,6 +373,41 @@ func ScanRepoResult2REST(result *share.ScanResult, tagMap map[string][]string) *
 	return report
 }
 
+// TODO update fusionScan
+func fillFusionVulFields(vul *share.ScanVulnerability, v *api.RESTVulnerability) {
+	v.Score = vul.Score
+	v.Vectors = vul.Vectors
+	v.ScoreV3 = vul.ScoreV3
+	v.VectorsV3 = vul.VectorsV3
+	v.Description = vul.Description
+	v.Link = vul.Link
+
+	log.WithFields(log.Fields{"vul.PublishedDate": vul.PublishedDate}).Info("XXXXX fillFusionVulFields")
+	if pubTS, err := strconv.ParseInt(vul.PublishedDate, 0, 64); err == nil {
+		v.PublishedTS = pubTS
+	}
+	if lastModTS, err := strconv.ParseInt(vul.LastModifiedDate, 0, 64); err == nil {
+		v.LastModTS = lastModTS
+	}
+
+	if v.Severity == "" {
+		// NVSHAS-8242: temporary reversion
+		// if v.Score >= 9 || v.ScoreV3 >= 9 {
+		// 	v.Severity = share.VulnSeverityCritical
+		// } else
+
+		if v.Score >= 7 || v.ScoreV3 >= 7 {
+			v.Severity = share.VulnSeverityHigh
+		} else if v.Score >= 4 || v.ScoreV3 >= 4 {
+			v.Severity = share.VulnSeverityMedium
+		} else {
+			v.Severity = share.VulnSeverityLow
+		}
+	}
+
+	v.FeedRating = v.Severity
+}
+
 func fillVulFields(vr *share.ScanVulnerability, v *api.RESTVulnerability) {
 	v.Score = vr.Score
 	v.Vectors = vr.Vectors
@@ -376,6 +415,7 @@ func fillVulFields(vr *share.ScanVulnerability, v *api.RESTVulnerability) {
 	v.VectorsV3 = vr.VectorsV3
 	v.Description = vr.Description
 	v.Link = vr.Link
+
 	if t, err := time.Parse(time.RFC3339, vr.PublishedDate); err == nil {
 		v.PublishedTS = t.Unix()
 	}
@@ -425,7 +465,20 @@ func normalizeBaseOS(baseOS string) string {
 	return baseOS
 }
 
-func FillVulTraits(cvedb CVEDBType, baseOS string, vts []*VulTrait, showTag string, includeFiltered bool) []*api.RESTVulnerability {
+func GetScanVulnerabilityMapKey(vulnerability *VulTrait) string {
+	return fmt.Sprintf("%s:%s:%s", vulnerability.Name, vulnerability.fileName, vulnerability.pkgName)
+}
+
+func ScanVulnerabilitiesToMap(vulnerabilities []*share.ScanVulnerability) map[string]*share.ScanVulnerability {
+	vulMap := make(map[string]*share.ScanVulnerability)
+	for i := range vulnerabilities {
+		key := fmt.Sprintf("%s:%s:%s", vulnerabilities[i].Name, vulnerabilities[i].FileName, vulnerabilities[i].PackageName)
+		vulMap[key] = vulnerabilities[i]
+	}
+	return vulMap
+}
+
+func FillVulTraits(cvedb CVEDBType, baseOS string, vts []*VulTrait, showTag string, includeFiltered bool, vulnerabilityFindingsMap map[string]*share.ScanVulnerability) []*api.RESTVulnerability {
 	baseOS = normalizeBaseOS(baseOS)
 
 	vuls := make([]*api.RESTVulnerability, 0, len(vts))
@@ -451,7 +504,14 @@ func FillVulTraits(cvedb CVEDBType, baseOS string, vts []*VulTrait, showTag stri
 
 		// Fill verbose vulnerability info, new scanner should return DBKey for each cve.
 		// The guess work based on baseOS is only needed for upgrade from pre-5.0 cases.
-		if vt.dbKey != "" {
+		log.WithFields(log.Fields{"vt": vt, "vt.dbKey": vt.dbKey}).Info("XXXXX FillVulTraits")
+		if vt.dbKey == "Fusion-DBkey" {
+			if vr, ok := vulnerabilityFindingsMap[GetScanVulnerabilityMapKey(vt)]; ok {
+				fillFusionVulFields(vr, vul)
+			} else {
+				log.WithFields(log.Fields{"GetScanVulnerabilityMapKey(vt)": GetScanVulnerabilityMapKey(vt)}).Info("XXXXX FillVulTraits not found")
+			}
+		} else if vt.dbKey != "" {
 			if vr, ok := cvedb[vt.dbKey]; ok {
 				fillVulFields(vr, vul)
 			}
@@ -886,13 +946,16 @@ func (vpf vpFilter) FilterVulTraits(traits []*VulTrait, idns []api.RESTIDName) u
 	alives := utils.NewSet()
 
 	if vpf.vf == nil || len(vpf.vf.Entries) == 0 {
+		log.Info("XXXXX FilterVulTraits: no filter entries")
 		for _, t := range traits {
+			log.WithFields(log.Fields{"t": t}).Info("XXXXX log t")
 			t.filtered = false
 			alives.Add(t.Name)
 		}
 		return alives
 	}
 
+	log.Info("XXXXX FilterVulTraits: will filter entries")
 	for _, t := range traits {
 		var skip bool
 		if len(idns) == 0 {
@@ -906,6 +969,7 @@ func (vpf vpFilter) FilterVulTraits(traits []*VulTrait, idns []api.RESTIDName) u
 			}
 		}
 		t.filtered = skip
+		log.WithFields(log.Fields{"t": t}).Info("XXXXX log t filtered")
 		if !skip {
 			alives.Add(t.Name)
 		}
