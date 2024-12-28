@@ -1,6 +1,7 @@
 package workerlet
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,10 +141,11 @@ func (ts *Tasker) Run(request interface{}, cid string) ([]byte, []byte, error) {
 	//////
 	cmd := exec.Command(ts.taskPath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if ts.bShowDebug {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
+	var stdout, stderr bytes.Buffer
+	// if ts.bShowDebug {
+	// cmd.Stdout = &stdout
+	// cmd.Stderr = &stderr
+	// }
 
 	if err := cmd.Start(); err != nil {
 		log.WithFields(log.Fields{"error": err}).Error("Start")
@@ -158,8 +160,19 @@ func (ts *Tasker) Run(request interface{}, cid string) ([]byte, []byte, error) {
 
 	if err != nil {
 		log.WithFields(log.Fields{"error": err}).Error("Done")
+		log.WithFields(log.Fields{
+			"workPath": workingFolder,
+			"stdout":   stdout.String(),
+			"stderr":   stderr.String(),
+			"error":    err,
+		}).Error("Command execution failed")
 		return nil, nil, err
 	}
+	log.WithFields(log.Fields{
+		"workPath": workingFolder,
+		"stdout":   stdout.String(),
+		"stderr":   stderr.String(),
+	}).Info("Command executed successfully")
 	return ts.getResultFile(request, workingFolder)
 }
 

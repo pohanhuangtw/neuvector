@@ -17,6 +17,11 @@ import (
 	"github.com/neuvector/neuvector/share/utils"
 )
 
+const (
+	MaxRetryCount = 5               // MaxRetryCount is the number of retries before giving up
+	RetryInterval = 2 * time.Second // RetryInterval is the initial wait time before retrying, will increase exponentially
+)
+
 type ScanService struct {
 	scanning  utils.Set
 	scanMutex sync.Mutex
@@ -74,11 +79,16 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 			data.Error = share.ScanErrorCode_ScanErrNone
 		}
 	} else if c, ok := gInfo.activeContainers[req.ID]; ok {
+		log.WithFields(log.Fields{"c": c}).Info("XXXXX scan the container")
 		pid = c.pid
 		pidHost = (c.info.PidMode == "host")
 		if c.scanCache != nil {
 			data.Buffer = c.scanCache
 			data.Error = share.ScanErrorCode_ScanErrNone
+		}
+		data.WorkloadMeta = &share.WorkloadMetadata{
+			Name:      c.name,
+			Namespace: c.domain,
 		}
 	}
 	gInfoRUnlock()
@@ -107,11 +117,15 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 	bytesValue, _, err := walkerTask.Run(taskReq, req.ID)
 	if err == nil {
 		if err = json.Unmarshal(bytesValue, &data); err != nil {
-			log.WithFields(log.Fields{"id": req.ID, "error": err}).Error()
+			log.WithFields(log.Fields{"id": req.ID, "error": err}).Error("XXXXX")
 		}
-	} else {
-		log.WithFields(log.Fields{"id": req.ID, "error": err}).Error()
 	}
+
+	// if data.SbomMetadata != nil {
+	// 	for _, trivyScanResult := range data.SbomMetadata.TrivyScanResult {
+	// 		log.WithFields(log.Fields{"req": req, "trivyScanResult": trivyScanResult}).Info("XXXXX get the trivy result in the path walk")
+	// 	}
+	// }
 
 	if data.Error == share.ScanErrorCode_ScanErrNone {
 		gInfoLock()

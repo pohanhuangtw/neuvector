@@ -145,6 +145,12 @@ message ScanResult {
     ScanTypeMap ScanTypesRequested = 27;
 }
 
+message SBOMMetadata {
+    string RootDirectory = 1;
+    repeated string FilePaths = 2;
+    repeated TrivyScanResponse TrivyScanResult = 3;
+}
+
 message ScanSignatureInfo {
     repeated string Verifiers = 1;
     string VerificationTimestamp = 2;
@@ -161,6 +167,14 @@ message ScanRunningRequest {
 message ScanData {
     ScanErrorCode Error = 1;
     bytes Buffer = 2;
+    SBOMMetadata SbomMetadata = 3;
+    bytes SBOMBuffer = 4;
+    WorkloadMetadata WorkloadMeta = 5;
+}
+
+message WorkloadMetadata {
+    string Name = 1;
+    string Namespace = 2;
 }
 
 message ScanAppPackage {
@@ -188,4 +202,58 @@ message ScannerSettings {
     string httpProxy = 3;
     string httpsProxy = 4;
     string noProxy = 5;
+}
+
+
+message TrivyScanResponse {
+    message Vulnerability {
+        string VulnerabilityID = 1;
+        string PkgName = 2;
+        string PkgID = 3;
+        PackageIdentifier PkgIdentifier = 4;
+        string InstalledVersion = 5;
+        string FixedVersion = 6;
+        string Status = 7;
+        Layer Layer = 8;
+        string SeveritySource = 9;
+        string PrimaryURL = 10;
+        DataSource DataSource = 11;
+        string Title = 12;
+        string Description = 13;
+        string Severity = 14;
+        map<string, int32> VendorSeverity = 15;
+        map<string, CVSS> CVSS = 16;
+        repeated string References = 17;
+        string PublishedDate = 18;
+        string LastModifiedDate = 19;
+    }
+
+    message Result {
+        repeated Vulnerability Vulnerabilities = 1;
+    }
+
+    repeated Result Results = 1;
+}
+
+message PackageIdentifier {
+    string PURL = 1;
+    string UID = 2;
+}
+
+message Layer {
+    string Digest = 1;
+    string DiffID = 2;
+}
+
+message DataSource {
+    string ID = 1;
+    string Name = 2;
+    string URL = 3;
+}
+
+message CVSS {
+    string V3Vector = 1;
+    float V3Score = 2;
+    string V2Vector = 3;
+    float V2Score = 4;
 }

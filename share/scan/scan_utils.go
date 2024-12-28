@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -37,6 +38,11 @@ const (
 	DpkgStatus    = "var/lib/dpkg/status"
 	DpkgStatusDir = "var/lib/dpkg/status.d/" // used by distroless images
 	apkPackages   = "lib/apk/db/installed"
+)
+
+const (
+	MaxRetryCount = 5               // MaxRetryCount is the number of retries before giving up
+	RetryInterval = 2 * time.Second // RetryInterval is the initial wait time before retrying, will increase exponentially
 )
 
 var OSPkgFiles utils.Set = utils.NewSet(
@@ -111,8 +117,83 @@ func NewScanUtil(sys *system.SystemTools) *ScanUtil {
 	return s
 }
 
-func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string, pidHost bool) ([]utils.TarFileInfo, bool) {
+func (s *ScanUtil) runTrivyBinary(args []string) (*bytes.Buffer, error) {
+	var out, stderr bytes.Buffer
+	var err error
+	for attempt := 1; attempt <= MaxRetryCount; attempt++ {
+		stderr.Reset()
+		out.Reset()
+
+		cmd := exec.Command("trivy", args...)
+		cmd.Stderr = &stderr
+		cmd.Stdout = &out
+		err = cmd.Run()
+		if err == nil {
+			break
+		}
+		if attempt < MaxRetryCount {
+			waitTime := time.Duration(attempt) * RetryInterval
+			log.WithFields(log.Fields{"attempt": attempt, "err": err, "stderr": stderr.String()}).Info("XXXXX Attempts failed")
+			time.Sleep(waitTime)
+		}
+	}
+
+	return &out, err
+}
+
+// Needs to prepare the part if NV miss the items
+type TrivyScanResponse struct {
+	Results []struct {
+		Vulnerabilities []struct {
+			VulnerabilityID  string            `json:"VulnerabilityID"`
+			PkgName          string            `json:"PkgName"`
+			PkgID            string            `json:"PkgID"`
+			PkgIdentifier    PackageIdentifier `json:"PkgIdentifier"`
+			InstalledVersion string            `json:"InstalledVersion"`
+			FixedVersion     string            `json:"FixedVersion"`
+			Status           string            `json:"Status"`
+			Layer            Layer             `json:"Layer"`
+			SeveritySource   string            `json:"SeveritySource"`
+			PrimaryURL       string            `json:"PrimaryURL"`
+			DataSource       DataSource        `json:"DataSource"`
+			Title            string            `json:"Title"`
+			Description      string            `json:"Description"`
+			Severity         string            `json:"Severity"`
+			VendorSeverity   map[string]int    `json:"VendorSeverity"`
+			CVSS             map[string]CVSS   `json:"CVSS"`
+			References       []string          `json:"References"`
+			PublishedDate    string            `json:"PublishedDate"`
+			LastModifiedDate string            `json:"LastModifiedDate"`
+		} `json:"Vulnerabilities"`
+	} `json:Results`
+}
+
+type PackageIdentifier struct {
+	PURL string `json:"PURL"`
+	UID  string `json:"UID"`
+}
+
+type Layer struct {
+	Digest string `json:"Digest"`
+	DiffID string `json:"DiffID"`
+}
+
+type DataSource struct {
+	ID   string `json:"ID"`
+	Name string `json:"Name"`
+	URL  string `json:"URL"`
+}
+
+type CVSS struct {
+	V3Vector string  `json:"V3Vector,omitempty"`
+	V3Score  float32 `json:"V3Score,omitempty"`
+	V2Vector string  `json:"V2Vector,omitempty"`
+	V2Score  float32 `json:"V2Score,omitempty"`
+}
+
+func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string, pidHost bool) ([]utils.TarFileInfo, []string, bool) {
 	var files []utils.TarFileInfo
+	var runningPackagePath []string
 	var hasPackage bool
 	for itr := range OSPkgFiles.Iter() {
 		var data []byte
@@ -120,7 +201,7 @@ func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string
 
 		lib := itr.(string)
 		path := s.sys.ContainerFilePath(pid, prefix+lib)
-
+		runningPackagePath = append(runningPackagePath, path)
 		// Extract necessary packages
 		if RPMPkgFiles.Contains(lib) {
 			data, err = GetRpmPackages(path, kernel)
@@ -172,39 +253,72 @@ func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string
 
 		files = append(files, utils.TarFileInfo{Name: lib, Body: data})
 	}
-	return files, hasPackage
+
+	// log.WithFields(log.Fields{"runningPackagePath": runningPackagePath}).Info("readRunningPackages, running package path")
+	// var trivyScanResult []*share.TrivyScanResponse
+	// for i, path := range runningPackagePath {
+	// 	log.WithFields(log.Fields{"path": path, "i": i}).Info("readRunningPackages, running package path")
+	// 	if i > 5 {
+	// 		break
+	// 	}
+	// 	fsScan, err := s.runTrivyBinary([]string{"fs", path, "--format", "json"})
+	// 	if err != nil {
+	// 		log.WithFields(log.Fields{"path": path, "error": err}).Error("XXXXX")
+	// 	} else {
+	// 		log.WithFields(log.Fields{"filePath scan result": fsScan}).Info("XXXXX works in fsScanPID")
+	// 		var result share.TrivyScanResponse
+	// 		if jsonErr := json.Unmarshal(fsScan.Bytes(), &result); jsonErr != nil {
+	// 			log.WithFields(log.Fields{"path": path, "error": jsonErr}).Error("XXXXX unmarshal error")
+	// 		} else {
+	// 			trivyScanResult = append(trivyScanResult, &result)
+	// 		}
+	// 	}
+	// }
+
+	// log.WithFields(log.Fields{"trivyScanResult": trivyScanResult}).Info("XXXXX works in fsScanPID")
+	return files, runningPackagePath, hasPackage
 }
 
-func (s *ScanUtil) GetRunningPackages(id string, objType share.ScanObjectType, pid int, kernel string, pidHost bool) ([]byte, share.ScanErrorCode) {
-	files, hasPkgMgr := s.readRunningPackages(id, pid, "/", kernel, pidHost)
+func (s *ScanUtil) GetRunningPackages(id string, objType share.ScanObjectType, pid int, kernel string, pidHost bool) ([]byte, *share.SBOMMetadata, share.ScanErrorCode) {
+	SBOMMetadata := &share.SBOMMetadata{
+		RootDirectory: s.sys.ContainerFilePath(pid, "/"),
+		FilePaths:     []string{},
+	}
+	files, runningPackagePath, hasPkgMgr := s.readRunningPackages(id, pid, "/", kernel, pidHost)
 	if len(files) == 0 && !hasPkgMgr && objType == share.ScanObjectType_HOST {
 		// In RancherOS, host os-release file is at /host/proc/1/root/usr/etc/os-release
 		// but sometimes this file is not accessible.
-		files, _ /*hasPkgMgr*/ = s.readRunningPackages(id, pid, "/usr/", kernel, pidHost)
+		files, runningPackagePath, _ /*hasPkgMgr*/ = s.readRunningPackages(id, pid, "/usr/", kernel, pidHost)
 	}
 
 	if objType == share.ScanObjectType_CONTAINER {
 		// We may still have data when there is an error, such as timeout
-		data, err := s.getContainerAppPkg(pid)
+		log.WithFields(log.Fields{"pid": pid}).Info("XXXXXXX getContainerAppPkg, pid")
+		data, appPackagePath, trivyScanResult, err := s.getContainerAppPkg(pid)
 		if err != nil {
 			log.WithFields(log.Fields{"data": len(data), "error": err}).Error("Error when getting container app packages")
 		}
 		if len(data) > 0 {
 			files = append(files, utils.TarFileInfo{Name: AppFileName, Body: data})
 		}
+		for _, path := range appPackagePath {
+			runningPackagePath = append(runningPackagePath, path)
+		}
+		SBOMMetadata.TrivyScanResult = append(SBOMMetadata.TrivyScanResult, trivyScanResult...)
 	}
+	SBOMMetadata.FilePaths = runningPackagePath
 
 	if len(files) == 0 {
 		log.WithFields(log.Fields{"id": id}).Debug("Empty libary files")
-		return nil, share.ScanErrorCode_ScanErrNotSupport
+		return nil, SBOMMetadata, share.ScanErrorCode_ScanErrNotSupport
 	}
 	buf, err := utils.MakeTar(files)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Error("make TAR error")
-		return nil, share.ScanErrorCode_ScanErrFileSystem
+		return nil, SBOMMetadata, share.ScanErrorCode_ScanErrFileSystem
 	}
 
-	return buf.Bytes(), share.ScanErrorCode_ScanErrNone
+	return buf.Bytes(), SBOMMetadata, share.ScanErrorCode_ScanErrNone
 }
 
 func (s *ScanUtil) GetAppPackages(path string) ([]AppPackage, []byte, share.ScanErrorCode) {
@@ -224,8 +338,10 @@ func (s *ScanUtil) GetAppPackages(path string) ([]AppPackage, []byte, share.Scan
 	return appPkgs, buf.Bytes(), share.ScanErrorCode_ScanErrNone
 }
 
-func (s *ScanUtil) getContainerAppPkg(pid int) ([]byte, error) {
+// TODO return the file path to generate spdx json to scan => which trivy support
+func (s *ScanUtil) getContainerAppPkg(pid int) ([]byte, []string, []*share.TrivyScanResponse, error) {
 	apps := NewScanApps(false) // no need to scan the same file twice
+	appPackagePath := make([]string, 0)
 	exclDirs := utils.NewSet("boot", "dev", "proc", "run", "sys")
 	rootPath := s.sys.ContainerFilePath(pid, "/")
 	rootLen := len(rootPath)
@@ -260,11 +376,46 @@ func (s *ScanUtil) getContainerAppPkg(pid int) ([]byte, error) {
 			}
 			inpath := path[rootLen:]
 			apps.ExtractAppPkg(inpath, path)
+			appPackagePath = append(appPackagePath, path)
 		}
 		return nil
 	})
 
-	return apps.marshal(), walkErr
+	var trivyScanResult []*share.TrivyScanResponse
+
+	// log.WithFields(log.Fields{"appPackagePath": appPackagePath}).Info("XXXXX appPackagePath")
+	// // for i, path := range appPackagePath {
+	// // 	log.WithFields(log.Fields{"path": path, "i": i}).Info("XXXXX works in fsScanPID")
+	// // 	if i > 5 {
+	// // 		break
+	// // 	}
+	// path := rootPath
+	// sbom, err := s.runTrivyBinary([]string{"fs", path, "--format", "spdx-json"})
+	// // wtite file into temp file
+	// tempFile, err := os.CreateTemp("", "trivy-scan-result")
+	// if err != nil {
+	// 	log.WithFields(log.Fields{"error": err}).Error("XXXXX")
+	// }
+	// defer tempFile.Close()
+	// tempFile.Write(sbom.Bytes())
+	// log.WithFields(log.Fields{"tempFile": tempFile.Name()}).Info("XXXXX Done finish write sbom")
+	// fsScan, err := s.runTrivyBinary([]string{"sbom", tempFile.Name(), "--format", "json"})
+	// if err != nil {
+	// 	log.WithFields(log.Fields{"path": path, "error": err}).Error("XXXXX")
+	// } else {
+	// 	log.WithFields(log.Fields{"filePath scan result": fsScan}).Info("XXXXX works in fsScanPID")
+	// 	var result share.TrivyScanResponse
+	// 	if jsonErr := json.Unmarshal(fsScan.Bytes(), &result); jsonErr != nil {
+	// 		log.WithFields(log.Fields{"path": path, "error": jsonErr}).Error("XXXXX unmarshal error")
+	// 	} else {
+	// 		trivyScanResult = append(trivyScanResult, &result)
+	// 	}
+	// }
+	// // }
+
+	// log.WithFields(log.Fields{"trivyScanResult": trivyScanResult}).Info("XXXXX works in fsScanPID")
+
+	return apps.marshal(), appPackagePath, trivyScanResult, walkErr
 }
 
 type RPMPackage struct {

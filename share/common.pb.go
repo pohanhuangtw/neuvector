@@ -97,13 +97,20 @@ It has these top-level messages:
 	ScanSecretResult
 	ScanSetIdPermLog
 	ScanResult
+	SBOMMetadata
 	ScanSignatureInfo
 	ScanRunningRequest
 	ScanData
+	WorkloadMetadata
 	ScanAppPackage
 	ScanAppRequest
 	ScanAwsLambdaRequest
 	ScannerSettings
+	TrivyScanResponse
+	PackageIdentifier
+	Layer
+	DataSource
+	CVSS
 	ScanImageRequest
 	SigstoreRootOfTrust
 	SigstoreVerifier

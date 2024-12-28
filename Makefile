@@ -81,6 +81,7 @@ copy_enf:
 	cp -r neuvector/agent/nvbench/kubernetes-cis-benchmark/aks-1.4.0/ ${STAGE_DIR}/usr/local/bin/scripts/cis_yamls/
 	cp -r neuvector/agent/nvbench/kubernetes-cis-benchmark/eks-1.4.0/ ${STAGE_DIR}/usr/local/bin/scripts/cis_yamls/
 	cp -r neuvector/agent/nvbench/ocp/rh-1.4.0/ ${STAGE_DIR}/usr/local/bin/scripts/cis_yamls/
+	cp /usr/local/bin/trivy ${STAGE_DIR}/usr/local/bin/
 
 	#
 	cp neuvector/scripts/sysctl.conf ${STAGE_DIR}/etc/

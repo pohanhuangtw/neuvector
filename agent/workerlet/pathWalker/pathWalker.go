@@ -26,6 +26,10 @@ import (
 )
 
 const procRootMountPoint = "/proc/%d/root"
+const (
+	MaxRetryCount = 5               // MaxRetryCount is the number of retries before giving up
+	RetryInterval = 2 * time.Second // RetryInterval is the initial wait time before retrying, will increase exponentially
+)
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: pathWalker [OPTIONS]\n")
@@ -285,10 +289,84 @@ func (tm *taskMain) WalkPathTask(req workerlet.WalkPathRequest) {
 	tm.done <- err
 }
 
+// func (tm *taskMain) runTrivyBinary(args []string) (*bytes.Buffer, error) {
+// 	var out, stderr bytes.Buffer
+// 	var err error
+// 	for attempt := 1; attempt <= MaxRetryCount; attempt++ {
+// 		stderr.Reset()
+// 		out.Reset()
+
+// 		cmd := exec.Command("trivy", args...)
+// 		cmd.Stderr = &stderr
+// 		cmd.Stdout = &out
+// 		err = cmd.Run()
+// 		if err == nil {
+// 			break
+// 		}
+// 		if attempt < MaxRetryCount {
+// 			waitTime := time.Duration(attempt) * RetryInterval
+// 			log.WithFields(log.Fields{"attempt": attempt, "err": err, "stderr": stderr.String()}).Info("XXXXX Attempts failed")
+// 			time.Sleep(waitTime)
+// 		}
+// 	}
+
+// 	return &out, err
+// }
+
+// // Needs to prepare the part if NV miss the items
+// type TrivyScanResponse struct {
+// 	Results []struct {
+// 		Vulnerabilities []struct {
+// 			VulnerabilityID  string            `json:"VulnerabilityID"`
+// 			PkgName          string            `json:"PkgName"`
+// 			PkgID            string            `json:"PkgID"`
+// 			PkgIdentifier    PackageIdentifier `json:"PkgIdentifier"`
+// 			InstalledVersion string            `json:"InstalledVersion"`
+// 			FixedVersion     string            `json:"FixedVersion"`
+// 			Status           string            `json:"Status"`
+// 			Layer            Layer             `json:"Layer"`
+// 			SeveritySource   string            `json:"SeveritySource"`
+// 			PrimaryURL       string            `json:"PrimaryURL"`
+// 			DataSource       DataSource        `json:"DataSource"`
+// 			Title            string            `json:"Title"`
+// 			Description      string            `json:"Description"`
+// 			Severity         string            `json:"Severity"`
+// 			VendorSeverity   map[string]int    `json:"VendorSeverity"`
+// 			CVSS             map[string]CVSS   `json:"CVSS"`
+// 			References       []string          `json:"References"`
+// 			PublishedDate    string            `json:"PublishedDate"`
+// 			LastModifiedDate string            `json:"LastModifiedDate"`
+// 		} `json:"Vulnerabilities"`
+// 	} `json:Results`
+// }
+
+// type PackageIdentifier struct {
+// 	PURL string `json:"PURL"`
+// 	UID  string `json:"UID"`
+// }
+
+// type Layer struct {
+// 	Digest string `json:"Digest"`
+// 	DiffID string `json:"DiffID"`
+// }
+
+// type DataSource struct {
+// 	ID   string `json:"ID"`
+// 	Name string `json:"Name"`
+// 	URL  string `json:"URL"`
+// }
+
+// type CVSS struct {
+// 	V3Vector string  `json:"V3Vector,omitempty"`
+// 	V3Score  float32 `json:"V3Score,omitempty"`
+// 	V2Vector string  `json:"V2Vector,omitempty"`
+// 	V2Score  float32 `json:"V2Score,omitempty"`
+// }
+
 func (tm *taskMain) WalkPackageTask(req workerlet.WalkGetPackageRequest) {
 	var data share.ScanData
 	scanUtil := scan.NewScanUtil(tm.sys)
-	data.Buffer, data.Error = scanUtil.GetRunningPackages(req.Id, req.ObjType, req.Pid, req.Kernel, req.PidHost)
+	data.Buffer, data.SbomMetadata, data.Error = scanUtil.GetRunningPackages(req.Id, req.ObjType, req.Pid, req.Kernel, req.PidHost)
 
 	// outputs:
 	output, err := json.Marshal(data)
