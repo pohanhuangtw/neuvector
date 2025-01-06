@@ -191,20 +191,23 @@ type CVSS struct {
 	V2Score  float32 `json:"V2Score,omitempty"`
 }
 
-func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string, pidHost bool) ([]utils.TarFileInfo, []string, bool) {
+func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string, pidHost bool) ([]utils.TarFileInfo, []*share.SBOM, bool) {
 	var files []utils.TarFileInfo
 	var runningPackagePath []string
+	var sboms []*share.SBOM
 	var hasPackage bool
 	for itr := range OSPkgFiles.Iter() {
 		var data []byte
+		var sbom []*share.SBOM
 		var err error
 
 		lib := itr.(string)
 		path := s.sys.ContainerFilePath(pid, prefix+lib)
-		runningPackagePath = append(runningPackagePath, path)
+
 		// Extract necessary packages
 		if RPMPkgFiles.Contains(lib) {
-			data, err = GetRpmPackages(path, kernel)
+			data, sbom, err = GetRpmPackages(path, kernel)
+			runningPackagePath = append(runningPackagePath, path)
 			if err != nil {
 				continue
 			}
@@ -216,18 +219,21 @@ func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string
 			}
 			for _, file := range dpkgfiles {
 				filepath := fmt.Sprintf("%s%s", path, file.Name())
-				filedata, err := GetDpkgStatus(filepath, kernel)
+				runningPackagePath = append(runningPackagePath, filepath)
+				filedata, sbom, err := GetDpkgStatus(filepath, kernel)
 				if err != nil {
 					continue
 				}
 				name := fmt.Sprintf("%s%s", DpkgStatusDir, file.Name())
 				files = append(files, utils.TarFileInfo{Name: name, Body: filedata})
+				sboms = append(sboms, sbom...)
 			}
 			hasPackage = true
 			continue
 		} else if lib == DpkgStatus {
 			//get the dpkg status file
-			data, err = GetDpkgStatus(path, kernel)
+			data, sbom, err = GetDpkgStatus(path, kernel)
+			runningPackagePath = append(runningPackagePath, path)
 			if err != nil {
 				continue
 			}
@@ -236,7 +242,7 @@ func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string
 			// NVSHAS-5589, on some containers, we somehow identify the base os as the host's os.
 			// The container shares host mount and pid namespace, but it still shouldn't result in this.
 			// The real cause is unknown, switching the namespace fixes the problem.
-
+			runningPackagePath = append(runningPackagePath, prefix+lib)
 			if pid != 1 && !pidHost && strings.HasSuffix(lib, "release") {
 				data, err = s.sys.NsGetFile(prefix+lib, pid, false, 0, 0)
 			} else {
@@ -250,8 +256,9 @@ func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string
 				hasPackage = true
 			}
 		}
-
+		log.WithFields(log.Fields{"sboms": sboms, "sbom": sbom}).Info("XXXXX in loop of readRunningPackages")
 		files = append(files, utils.TarFileInfo{Name: lib, Body: data})
+		sboms = append(sboms, sbom...)
 	}
 
 	// log.WithFields(log.Fields{"runningPackagePath": runningPackagePath}).Info("readRunningPackages, running package path")
@@ -276,49 +283,55 @@ func (s *ScanUtil) readRunningPackages(id string, pid int, prefix, kernel string
 	// }
 
 	// log.WithFields(log.Fields{"trivyScanResult": trivyScanResult}).Info("XXXXX works in fsScanPID")
-	return files, runningPackagePath, hasPackage
+	log.WithFields(log.Fields{"sboms": sboms}).Info("XXXXX readRunningPackages")
+	return files, sboms, hasPackage
 }
 
-func (s *ScanUtil) GetRunningPackages(id string, objType share.ScanObjectType, pid int, kernel string, pidHost bool) ([]byte, *share.SBOMMetadata, share.ScanErrorCode) {
+func (s *ScanUtil) GetRunningPackages(id string, objType share.ScanObjectType, pid int, kernel string, pidHost bool) ([]byte, *share.SBOMMetadata, []*share.SBOM, share.ScanErrorCode) {
 	SBOMMetadata := &share.SBOMMetadata{
 		RootDirectory: s.sys.ContainerFilePath(pid, "/"),
 		FilePaths:     []string{},
 	}
-	files, runningPackagePath, hasPkgMgr := s.readRunningPackages(id, pid, "/", kernel, pidHost)
+	files, sboms, hasPkgMgr := s.readRunningPackages(id, pid, "/", kernel, pidHost)
 	if len(files) == 0 && !hasPkgMgr && objType == share.ScanObjectType_HOST {
 		// In RancherOS, host os-release file is at /host/proc/1/root/usr/etc/os-release
 		// but sometimes this file is not accessible.
-		files, runningPackagePath, _ /*hasPkgMgr*/ = s.readRunningPackages(id, pid, "/usr/", kernel, pidHost)
+		log.WithFields(log.Fields{"sboms": sboms}).Info("XXXXX GetRunningPackages after 1st readRunningPackages")
+		files, sboms, _ /*hasPkgMgr*/ = s.readRunningPackages(id, pid, "/usr/", kernel, pidHost)
 	}
+
+	log.WithFields(log.Fields{"sboms": sboms}).Info("XXXXX GetRunningPackages after readRunningPackages")
 
 	if objType == share.ScanObjectType_CONTAINER {
 		// We may still have data when there is an error, such as timeout
 		log.WithFields(log.Fields{"pid": pid}).Info("XXXXXXX getContainerAppPkg, pid")
-		data, appPackagePath, trivyScanResult, err := s.getContainerAppPkg(pid)
+		data, sbom, _, err := s.getContainerAppPkg(pid)
 		if err != nil {
 			log.WithFields(log.Fields{"data": len(data), "error": err}).Error("Error when getting container app packages")
 		}
 		if len(data) > 0 {
 			files = append(files, utils.TarFileInfo{Name: AppFileName, Body: data})
 		}
-		for _, path := range appPackagePath {
-			runningPackagePath = append(runningPackagePath, path)
-		}
-		SBOMMetadata.TrivyScanResult = append(SBOMMetadata.TrivyScanResult, trivyScanResult...)
+		// for _, path := range appPackagePath {
+		// 	runningPackagePath = append(runningPackagePath, path)
+		// }
+		// SBOMMetadata.TrivyScanResult = append(SBOMMetadata.TrivyScanResult, trivyScanResult...)
+		sboms = append(sboms, sbom...)
 	}
-	SBOMMetadata.FilePaths = runningPackagePath
+	log.WithFields(log.Fields{"sboms": sboms}).Info("XXXXX GetRunningPackages after getContainerAppPkg")
+	// SBOMMetadata.FilePaths = runningPackagePath
 
 	if len(files) == 0 {
 		log.WithFields(log.Fields{"id": id}).Debug("Empty libary files")
-		return nil, SBOMMetadata, share.ScanErrorCode_ScanErrNotSupport
+		return nil, SBOMMetadata, sboms, share.ScanErrorCode_ScanErrNotSupport
 	}
 	buf, err := utils.MakeTar(files)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err}).Error("make TAR error")
-		return nil, SBOMMetadata, share.ScanErrorCode_ScanErrFileSystem
+		return nil, SBOMMetadata, sboms, share.ScanErrorCode_ScanErrFileSystem
 	}
 
-	return buf.Bytes(), SBOMMetadata, share.ScanErrorCode_ScanErrNone
+	return buf.Bytes(), SBOMMetadata, sboms, share.ScanErrorCode_ScanErrNone
 }
 
 func (s *ScanUtil) GetAppPackages(path string) ([]AppPackage, []byte, share.ScanErrorCode) {
@@ -339,9 +352,9 @@ func (s *ScanUtil) GetAppPackages(path string) ([]AppPackage, []byte, share.Scan
 }
 
 // TODO return the file path to generate spdx json to scan => which trivy support
-func (s *ScanUtil) getContainerAppPkg(pid int) ([]byte, []string, []*share.TrivyScanResponse, error) {
+func (s *ScanUtil) getContainerAppPkg(pid int) ([]byte, []*share.SBOM, []*share.TrivyScanResponse, error) {
 	apps := NewScanApps(false) // no need to scan the same file twice
-	appPackagePath := make([]string, 0)
+	// appPackagePath := make([]string, 0)
 	exclDirs := utils.NewSet("boot", "dev", "proc", "run", "sys")
 	rootPath := s.sys.ContainerFilePath(pid, "/")
 	rootLen := len(rootPath)
@@ -376,12 +389,25 @@ func (s *ScanUtil) getContainerAppPkg(pid int) ([]byte, []string, []*share.Trivy
 			}
 			inpath := path[rootLen:]
 			apps.ExtractAppPkg(inpath, path)
-			appPackagePath = append(appPackagePath, path)
 		}
 		return nil
 	})
 
 	var trivyScanResult []*share.TrivyScanResponse
+	// for _, path := range appPackagePath {
+	// 	realPath, err := filepath.EvalSymlinks(path)
+	// 	if err != nil {
+	// 		log.WithFields(log.Fields{"path": path, "error": err}).Error("XXXXX")
+	// 	} else {
+	// 		log.WithFields(log.Fields{"realPath": realPath}).Info("XXXXX realPath")
+	// 		trivyScanResult, err := s.runTrivyBinary([]string{"fs", realPath, "--format", "json"})
+	// 		if err != nil {
+	// 			log.WithFields(log.Fields{"path": realPath, "error": err}).Error("XXXXX")
+	// 		} else {
+	// 			log.WithFields(log.Fields{"filePath scan result": trivyScanResult.String()}).Info("XXXXX works in fsScanPID")
+	// 		}
+	// 	}
+	// }
 
 	// log.WithFields(log.Fields{"appPackagePath": appPackagePath}).Info("XXXXX appPackagePath")
 	// // for i, path := range appPackagePath {
@@ -415,7 +441,7 @@ func (s *ScanUtil) getContainerAppPkg(pid int) ([]byte, []string, []*share.Trivy
 
 	// log.WithFields(log.Fields{"trivyScanResult": trivyScanResult}).Info("XXXXX works in fsScanPID")
 
-	return apps.marshal(), appPackagePath, trivyScanResult, walkErr
+	return apps.marshal(), apps.getSbom(), trivyScanResult, walkErr
 }
 
 type RPMPackage struct {
@@ -439,12 +465,12 @@ func isRpmKernelPackage(p *rpmdb.PackageInfo) string {
 	}
 }
 
-func GetRpmPackages(fullpath, kernel string) ([]byte, error) {
+func GetRpmPackages(fullpath, kernel string) ([]byte, []*share.SBOM, error) {
 	if strings.HasPrefix(fullpath, "/proc/") || strings.HasPrefix(fullpath, "/host/proc/") {
 		// container scans
 		if rpmFile, err := os.Open(fullpath); err != nil {
 			// log.WithFields(log.Fields{"file": fullpath, "error": err}).Error()
-			return nil, err
+			return nil, nil, err
 		} else {
 			tempDir, err := os.MkdirTemp("", "")
 			if err == nil {
@@ -466,19 +492,20 @@ func GetRpmPackages(fullpath, kernel string) ([]byte, error) {
 	db, err := rpmdb.Open(fullpath)
 	if err != nil {
 		log.WithFields(log.Fields{"file": fullpath, "error": err}).Error("Failed to open rpm packages")
-		return nil, err
+		return nil, nil, err
 	}
 	defer db.Close()
 
 	pkgs, err := db.ListPackages()
 	if err != nil {
 		log.WithFields(log.Fields{"file": fullpath, "error": err}).Error("Failed to read rpm packages")
-		return nil, err
+		return nil, nil, err
 	}
 
 	log.WithFields(log.Fields{"file": fullpath, "kernel": kernel, "packages": len(pkgs)}).Info()
 
 	list := make([]RPMPackage, 0, len(pkgs))
+	sbom := make([]*share.SBOM, 0, len(pkgs))
 	for _, p := range pkgs {
 		if p.Name != "gpg-pubkey" {
 			var epoch int
@@ -488,17 +515,30 @@ func GetRpmPackages(fullpath, kernel string) ([]byte, error) {
 
 			if kernel == "" {
 				list = append(list, RPMPackage{Name: p.Name, Epoch: epoch, Version: p.Version, Release: p.Release})
+				sbom = append(sbom, &share.SBOM{
+					Reference: p.Name,
+					Name:      p.Name,
+					Version:   p.Version,
+					Type:      "library",
+				})
 			} else {
 				// filter kernels that are not running
 				if k := isRpmKernelPackage(p); k == "" || strings.HasPrefix(kernel, k) {
 					list = append(list, RPMPackage{Name: p.Name, Epoch: epoch, Version: p.Version, Release: p.Release})
+					sbom = append(sbom, &share.SBOM{
+						Reference: p.Name,
+						Name:      p.Name,
+						Version:   p.Version,
+						Type:      "library",
+					})
 				}
 			}
 		}
 	}
 
 	value, _ := json.Marshal(&list)
-	return value, nil
+	log.WithFields(log.Fields{"sbom": sbom}).Info("XXXXX in GetRpmPackages")
+	return value, sbom, nil
 }
 
 func isDpkgKernelPackage(line string) string {
@@ -517,10 +557,11 @@ func isDpkgKernelPackage(line string) string {
 	}
 }
 
-func GetDpkgStatus(fullpath, kernel string) ([]byte, error) {
+func GetDpkgStatus(fullpath, kernel string) ([]byte, []*share.SBOM, error) {
 	inputFile, err := os.Open(fullpath)
+	var sbom []*share.SBOM
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer inputFile.Close()
 
@@ -548,6 +589,13 @@ func GetDpkgStatus(fullpath, kernel string) ([]byte, error) {
 			continue
 		}
 
+		sbom = append(sbom, &share.SBOM{
+			Reference: line,
+			Name:      line,
+			Version:   line,
+			Type:      "library",
+		})
+
 		if strings.HasPrefix(line, "Package: ") ||
 			strings.HasPrefix(line, "Status: ") ||
 			strings.HasPrefix(line, "Source: ") ||
@@ -568,7 +616,7 @@ func GetDpkgStatus(fullpath, kernel string) ([]byte, error) {
 			*/
 		}
 	}
-	return buf.Bytes(), nil
+	return buf.Bytes(), sbom, nil
 }
 
 func ParseRegistryURI(ur string) (string, error) {

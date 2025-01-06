@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -289,29 +290,29 @@ func (tm *taskMain) WalkPathTask(req workerlet.WalkPathRequest) {
 	tm.done <- err
 }
 
-// func (tm *taskMain) runTrivyBinary(args []string) (*bytes.Buffer, error) {
-// 	var out, stderr bytes.Buffer
-// 	var err error
-// 	for attempt := 1; attempt <= MaxRetryCount; attempt++ {
-// 		stderr.Reset()
-// 		out.Reset()
+func (tm *taskMain) runTrivy(args []string) (*bytes.Buffer, error) {
+	var out, stderr bytes.Buffer
+	var err error
+	for attempt := 1; attempt <= MaxRetryCount; attempt++ {
+		stderr.Reset()
+		out.Reset()
 
-// 		cmd := exec.Command("trivy", args...)
-// 		cmd.Stderr = &stderr
-// 		cmd.Stdout = &out
-// 		err = cmd.Run()
-// 		if err == nil {
-// 			break
-// 		}
-// 		if attempt < MaxRetryCount {
-// 			waitTime := time.Duration(attempt) * RetryInterval
-// 			log.WithFields(log.Fields{"attempt": attempt, "err": err, "stderr": stderr.String()}).Info("XXXXX Attempts failed")
-// 			time.Sleep(waitTime)
-// 		}
-// 	}
+		cmd := exec.Command("trivy", args...)
+		cmd.Stderr = &stderr
+		cmd.Stdout = &out
+		err = cmd.Run()
+		if err == nil {
+			break
+		}
+		if attempt < MaxRetryCount {
+			waitTime := time.Duration(attempt) * RetryInterval
+			log.WithFields(log.Fields{"attempt": attempt, "err": err, "stderr": stderr.String()}).Info("XXXXX Attempts failed")
+			time.Sleep(waitTime)
+		}
+	}
 
-// 	return &out, err
-// }
+	return &out, err
+}
 
 // // Needs to prepare the part if NV miss the items
 // type TrivyScanResponse struct {
@@ -366,7 +367,7 @@ func (tm *taskMain) WalkPathTask(req workerlet.WalkPathRequest) {
 func (tm *taskMain) WalkPackageTask(req workerlet.WalkGetPackageRequest) {
 	var data share.ScanData
 	scanUtil := scan.NewScanUtil(tm.sys)
-	data.Buffer, data.SbomMetadata, data.Error = scanUtil.GetRunningPackages(req.Id, req.ObjType, req.Pid, req.Kernel, req.PidHost)
+	data.Buffer, data.SbomMetadata, data.Sbom, data.Error = scanUtil.GetRunningPackages(req.Id, req.ObjType, req.Pid, req.Kernel, req.PidHost)
 
 	// outputs:
 	output, err := json.Marshal(data)

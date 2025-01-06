@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/neuvector/neuvector/share"
 	"github.com/neuvector/neuvector/share/utils"
 )
 
@@ -119,9 +120,17 @@ type dotnetPackage struct {
 	Targets map[string]map[string]dotnetDependency `json:"targets"`
 }
 
+type sbomMaterial struct {
+	Reference string `json:"reference"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Type      string `json:"type"`
+}
+
 type ScanApps struct {
 	pkgs    map[string][]AppPackage // AppPackage set
 	replace bool
+	sbom    []*share.SBOM
 }
 
 func NewScanApps(v2 bool) *ScanApps {
@@ -164,6 +173,7 @@ func (s *ScanApps) marshal() []byte {
 	return buf.Bytes()
 }
 
+// Stop at dotnet
 func (s *ScanApps) ExtractAppPkg(filename, fullpath string) {
 	if _, ok := s.pkgs[filename]; ok && !s.replace {
 		return
@@ -194,6 +204,10 @@ func (s *ScanApps) ExtractAppPkg(filename, fullpath string) {
 	} else {
 		s.parseGolangPackage(filename, fullpath)
 	}
+}
+
+func (s *ScanApps) getSbom() []*share.SBOM {
+	return s.sbom
 }
 
 func (s *ScanApps) DerivePkg(data map[string][]byte) []AppPackage {
@@ -268,6 +282,11 @@ func (s *ScanApps) parseGolangPackage(filename, fullpath string) {
 			FileName:   filename,
 		}
 		pkgs[i] = pkg
+		s.sbom = append(s.sbom, &share.SBOM{
+			Name:    m.Path,
+			Version: strings.TrimPrefix(m.Version, "v"),
+			Type:    "library",
+		})
 	}
 	s.pkgs[filename] = pkgs
 }
@@ -323,6 +342,13 @@ func (s *ScanApps) parseNodePackage(filename, fullpath string) {
 		Version:    version,
 		FileName:   filename,
 	}
+
+	s.sbom = append(s.sbom, &share.SBOM{
+		Name:    name,
+		Version: version,
+		Type:    "library",
+	})
+
 	s.pkgs[filename] = []AppPackage{pkg}
 }
 
@@ -510,6 +536,12 @@ func (s *ScanApps) parseJarPackage(r *zip.Reader, origJar, filename, fullpath st
 				Version:    version,
 			}
 
+			s.sbom = append(s.sbom, &share.SBOM{
+				Name:    fmt.Sprintf("%s:%s", groupId, artifactId),
+				Version: version,
+				Type:    "library",
+			})
+
 			key := fmt.Sprintf("%s-%s-%s", pkg.FileName, pkg.ModuleName, pkg.Version)
 			if !dedup.Contains(key) {
 				dedup.Add(key)
@@ -622,6 +654,11 @@ func (s *ScanApps) parsePythonPackage(filename string) {
 			FileName:   pkgPath,
 		}
 		s.pkgs[filename] = []AppPackage{pkg}
+		s.sbom = append(s.sbom, &share.SBOM{
+			Name:    name,
+			Version: ver,
+			Type:    "library",
+		})
 	}
 }
 

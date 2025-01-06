@@ -143,9 +143,11 @@ func (ts *Tasker) Run(request interface{}, cid string) ([]byte, []byte, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	var stdout, stderr bytes.Buffer
 	// if ts.bShowDebug {
-	// cmd.Stdout = &stdout
-	// cmd.Stderr = &stderr
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	// }
+
+	log.WithFields(log.Fields{"stdout": stdout.String(), "stderr": stderr.String()}).Info("XXXXX pathwalker out")
 
 	if err := cmd.Start(); err != nil {
 		log.WithFields(log.Fields{"error": err}).Error("Start")

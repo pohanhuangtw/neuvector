@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -54,6 +56,30 @@ func (ss *ScanService) setScanDone(id string) {
 	ss.scanning.Remove(id)
 }
 
+func (ss *ScanService) runTrivy(args []string) (*bytes.Buffer, error) {
+	var out, stderr bytes.Buffer
+	var err error
+	for attempt := 1; attempt <= MaxRetryCount; attempt++ {
+		stderr.Reset()
+		out.Reset()
+
+		cmd := exec.Command("trivy", args...)
+		cmd.Stderr = &stderr
+		cmd.Stdout = &out
+		err = cmd.Run()
+		if err == nil {
+			break
+		}
+		if attempt < MaxRetryCount {
+			waitTime := time.Duration(attempt) * RetryInterval
+			log.WithFields(log.Fields{"attempt": attempt, "err": err, "stderr": stderr.String()}).Info("XXXXX Attempts failed")
+			time.Sleep(waitTime)
+		}
+	}
+
+	return &out, err
+}
+
 // TODO@@ use the SBOM to scan by trivy
 func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningRequest) (*share.ScanData, error) {
 	// Use Info log level so we by default log it's scanning
@@ -79,7 +105,7 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 			data.Error = share.ScanErrorCode_ScanErrNone
 		}
 	} else if c, ok := gInfo.activeContainers[req.ID]; ok {
-		log.WithFields(log.Fields{"c": c}).Info("XXXXX scan the container")
+		log.WithFields(log.Fields{"c.info": c.info, "req": req, "c.pods": c.pods.String()}).Info("XXXXX scan the container")
 		pid = c.pid
 		pidHost = (c.info.PidMode == "host")
 		if c.scanCache != nil {
@@ -90,6 +116,20 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 			Name:      c.name,
 			Namespace: c.domain,
 		}
+
+		// out1, err := ss.runTrivy([]string{"fs", "--format", "json", c.rootFs})
+		// if err != nil {
+		// 	log.WithFields(log.Fields{"err": err}).Error("XXXXX error running Trivy scan")
+		// 	return &share.ScanData{Error: share.ScanErrorCode_ScanErrFileSystem}, nil
+		// }
+		// log.WithFields(log.Fields{"rootFs": data.SbomMetadata.FilePaths}).Info("XXXXX FilePaths")
+
+		// out2, err := ss.runTrivy([]string{"fs", "--format", "json", c.upperDir})
+		// if err != nil {
+		// 	log.WithFields(log.Fields{"err": err}).Error("XXXXX error running Trivy scan")
+		// 	return &share.ScanData{Error: share.ScanErrorCode_ScanErrFileSystem}, nil
+		// }
+		// log.WithFields(log.Fields{"upperDir": out2.String()}).Info("XXXXX out2")
 	}
 	gInfoRUnlock()
 
@@ -121,12 +161,6 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 		}
 	}
 
-	// if data.SbomMetadata != nil {
-	// 	for _, trivyScanResult := range data.SbomMetadata.TrivyScanResult {
-	// 		log.WithFields(log.Fields{"req": req, "trivyScanResult": trivyScanResult}).Info("XXXXX get the trivy result in the path walk")
-	// 	}
-	// }
-
 	if data.Error == share.ScanErrorCode_ScanErrNone {
 		gInfoLock()
 		if req.Type == share.ScanObjectType_HOST {
@@ -142,6 +176,12 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 	}
 
 	log.WithFields(log.Fields{"id": req.ID}).Info("return data for scanning")
+
+	if data.Sbom != nil {
+		log.WithFields(log.Fields{"sbom": data.Sbom}).Info("XXXXX sbom")
+	} else {
+		log.WithFields(log.Fields{"sbom": data.Sbom}).Info("XXXXX sbom is nil")
+	}
 	return &data, nil
 }
 

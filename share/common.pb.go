@@ -100,6 +100,7 @@ It has these top-level messages:
 	SBOMMetadata
 	ScanSignatureInfo
 	ScanRunningRequest
+	SBOM
 	ScanData
 	WorkloadMetadata
 	ScanAppPackage

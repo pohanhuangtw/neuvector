@@ -164,12 +164,20 @@ message ScanRunningRequest {
     string AgentRPCEndPoint = 4;
 }
 
+message SBOM {
+    string Reference = 1;
+    string Name = 2;
+    string Version = 3;
+    string Type = 4;
+}
+
 message ScanData {
     ScanErrorCode Error = 1;
     bytes Buffer = 2;
     SBOMMetadata SbomMetadata = 3;
     bytes SBOMBuffer = 4;
     WorkloadMetadata WorkloadMeta = 5;
+    repeated SBOM Sbom = 6;
 }
 
 message WorkloadMetadata {

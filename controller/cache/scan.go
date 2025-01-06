@@ -43,7 +43,7 @@ type regImageSummaryReport struct {
 var scannerCacheMap map[string]*scannerCache = make(map[string]*scannerCache)
 
 // grpc call should timeout in scanReqTimeout
-const scanReqTimeout = time.Second * 180
+const scanReqTimeout = time.Second * 300
 
 const scannerCleanupPeriod = time.Duration(time.Minute * 1)
 const scannerClearnupTimeout = time.Second * 20
