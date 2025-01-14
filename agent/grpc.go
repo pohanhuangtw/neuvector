@@ -5,8 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -177,11 +181,83 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 
 	log.WithFields(log.Fields{"id": req.ID}).Info("return data for scanning")
 
-	if data.Sbom != nil {
-		log.WithFields(log.Fields{"sbom": data.Sbom}).Info("XXXXX sbom")
-	} else {
-		log.WithFields(log.Fields{"sbom": data.Sbom}).Info("XXXXX sbom is nil")
+	// scan trivy in the enforcer
+
+	if data.SbomMetadata != nil {
+		// RootDirectory is /proc/pid/root, while ns path is /proc/pid/ns
+		nsPath := filepath.Join(filepath.Dir(data.SbomMetadata.RootDirectory), "ns")
+		trivyPath := "/usr/local/bin/trivy"
+		namespaceExec := "/usr/local/bin/namespace_exec"
+
+		args := []string{
+			"-p", nsPath,
+			"-b", trivyPath,
+			"-n", "mnt",
+			"--",
+			// "fs", "/", "--server", "0.0.0.0:8080", "--scanners", "vuln", "--format", "json",
+			"fs", ".", "--format", "cyclonedx",
+		}
+
+		log.WithFields(log.Fields{"args": args}).Info("OOOOOO args in scanRunningTrivy")
+
+		// TODO
+		cmd := exec.Command(namespaceExec, args...)
+		cwd, err := os.Getwd()
+		if err != nil {
+			log.WithFields(log.Fields{"err": err}).Error("OOOOOO error in scanRunningTrivy")
+		}
+		log.WithFields(log.Fields{"PWD": cwd}).Info("OOOOOO PWD in scanRunningTrivy")
+		log.WithFields(log.Fields{"TMPDIR": os.Getenv("TMPDIR")}).Info("OOOOOO TMPDIR in scanRunningTrivy")
+
+		// Get current program's user and group information
+		currentUser, err := user.Current()
+		if err != nil {
+			log.Fatalf("Failed to get current user: %v", err)
+		}
+		log.WithFields(log.Fields{"Current User": currentUser.Username, "UID": currentUser.Uid, "GID": currentUser.Gid}).Info("OOOOOO Current User in scanRunningTrivy")
+
+		// Check effective UID and GID
+		uid := os.Getuid()
+		gid := os.Getgid()
+		log.WithFields(log.Fields{"Effective UID": uid, "Effective GID": gid}).Info("OOOOOO Effective UID in scanRunningTrivy")
+
+		cmd.Env = append(os.Environ(), "TMPDIR="+cwd)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			log.WithFields(log.Fields{"err": err, "stderr": stderr.String(), "stdout": stdout.String()}).Info("OOOOO err in scanRunningTrivy")
+			return nil, err
+		}
+
+		log.WithFields(log.Fields{"stdout": stdout.String()}).Info("OOOOO stdout in scanRunningTrivy")
+
 	}
+
+	// if data.SbomMetadata != nil {
+	// 	log.WithFields(log.Fields{"sbom": data.SbomMetadata}).Info("XXXXX SbomMetadata")
+	// 	// tmpDir, _ := ss.MountAndCleanFiles(data.SbomMetadata.FilePaths)
+	// 	// log.WithFields(log.Fields{"tmpDir": tmpDir}).Info("XXXXX tmpDir")
+
+	// 	mountPoint, err := ss.MountContainerFS(data.SbomMetadata.RootDirectory)
+	// 	if err != nil {
+	// 		log.WithFields(log.Fields{"err": err}).Error("XXXXX error mounting container fs")
+	// 		return &share.ScanData{Error: share.ScanErrorCode_ScanErrFileSystem}, nil
+	// 	}
+
+	// 	out, err := ss.runTrivy([]string{"fs", "--format", "json", mountPoint})
+	// 	if err != nil {
+	// 		log.WithFields(log.Fields{"err": err}).Error("XXXXX error running Trivy scan")
+	// 		return &share.ScanData{Error: share.ScanErrorCode_ScanErrFileSystem}, nil
+	// 	} else {
+	// 		log.WithFields(log.Fields{"out": out.String(), "mountPoint": mountPoint}).Info("XXXXX success running Trivy scan with mount point")
+	// 	}
+	// } else {
+	// 	log.WithFields(log.Fields{"sbom": data.SbomMetadata}).Info("XXXXX SbomMetadata is nil")
+	// }
+
 	return &data, nil
 }
 

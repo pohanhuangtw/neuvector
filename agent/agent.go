@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"reflect"
 	"runtime"
@@ -244,6 +246,27 @@ func dumpGoroutineStack() {
 	}
 }
 
+// do monitoring
+func startTrivyServer() error {
+	path := "/usr/local/bin/trivy"
+	log.WithFields(log.Fields{"path": path}).Info("fPPPPPP path in startTrivyServer")
+
+	cmd := exec.Command(path, "server", "--listen", "0.0.0.0:8080")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.WithFields(log.Fields{"err": err, "stderr": stderr.String(), "stdout": stdout.String()}).Info("OOOOO err in scanRunningTrivy")
+		return err
+	}
+
+	log.WithFields(log.Fields{"path": path}).Info("fPPPPPP done in startTrivyServer")
+
+	return nil
+}
+
 func main() {
 	var joinAddr, advAddr, bindAddr string
 	var err error
@@ -399,6 +422,10 @@ func main() {
 		}
 		os.Exit(-2)
 	}
+
+	// log.Info("QQQQQQ startTrivyServer")
+	// go startTrivyServer()
+	// log.Info("AAAAAAAAA startTrivyServer")
 
 	walkerTask = workerlet.NewWalkerTask(*show_monitor_trace, global.SYS)
 
