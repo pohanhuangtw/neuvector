@@ -123,6 +123,9 @@ func namespaceAwareExec() error {
 		log.Fatalf("Failed to set namespace: %v", err)
 		return err
 	}
+	uid := os.Getuid()
+	gid := os.Getgid()
+	log.WithFields(log.Fields{"Effective UID": uid, "Effective GID": gid}).Info("OOOOOO Effective UID in scanRunningTrivy")
 
 	// Exec via memfd (execveat)
 	if err := fsExecve(uintptr(fd), args, os.Environ()); err != nil {

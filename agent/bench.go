@@ -1052,7 +1052,7 @@ func (b *Bench) doHostCustomCheck() {
 	items := make([]*benchItem, 0)
 	for _, s := range scripts {
 		ret, msg, err := b.runScript(s.Script, 1)
-		log.WithFields(log.Fields{"Script": s.Name, "msg": msg}).Debug("run host script")
+		log.WithFields(log.Fields{"Script": s.Name, "msg": msg}).Info("XXXXX run host script")
 
 		item := &benchItem{
 			testNum: s.Name,
@@ -1174,6 +1174,7 @@ func (b *Bench) runScript(script string, pid int) (bool, string, error) {
 		return false, "Session ended", fmt.Errorf("Session ended")
 	}
 
+	log.WithFields(log.Fields{"script": script}).Info("XXXXX in run script")
 	file, err := os.CreateTemp(os.TempDir(), "script")
 	if err != nil {
 		return false, "file system error", err

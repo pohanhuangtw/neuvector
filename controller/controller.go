@@ -347,6 +347,8 @@ func main() {
 		*custom_check_control = share.CustomCheckControl_Disable
 	}
 
+	*custom_check_control = share.CustomCheckControl_Loose
+
 	// Set global objects at the very first
 	platform, flavor, cloudPlatform, network, containers, err := global.SetGlobalObjects(*rtSock, resource.Register)
 	if err != nil {

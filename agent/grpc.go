@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 
 	"github.com/neuvector/neuvector/agent/workerlet"
@@ -84,6 +84,115 @@ func (ss *ScanService) runTrivy(args []string) (*bytes.Buffer, error) {
 	return &out, err
 }
 
+func chroot(root string) (bool, error) {
+	if err := unix.Chroot(root); err != nil {
+		return false, fmt.Errorf("chrooting to directory %q: %w", root, err)
+	}
+	return true, nil
+}
+
+func memfd(root string) {
+	nsPath := filepath.Join(filepath.Dir(root), "ns")
+	trivyPath := "/usr/local/bin/trivy"
+	namespaceExec := "/usr/local/bin/namespace_exec"
+
+	args := []string{
+		"-p", nsPath,
+		"-b", trivyPath,
+		"-n", "mnt",
+		"--",
+		// "fs", "/", "--server", "0.0.0.0:8080", "--scanners", "vuln", "--format", "json",
+		"fs", ".", "--format", "cyclonedx",
+	}
+
+	// log.WithFields(log.Fields{"args": args}).Info("OOOOOO args in scanRunningTrivy")
+
+	// // TODO
+	cmd := exec.Command(namespaceExec, args...)
+	cmd.Env = append(os.Environ(), "TMPDIR=.")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.WithFields(log.Fields{"err": err, "stderr": stderr.String(), "stdout": stdout.String()}).Info("OOOOO err in scanRunningTrivy")
+	}
+
+	log.WithFields(log.Fields{"stdout": stdout.String()}).Info("OOOOO stdout in scanRunningTrivy")
+}
+
+func chrootTrivy(root string) {
+	dir, err := os.Getwd()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+	log.WithFields(log.Fields{"working dir": dir}).Info("OOOOOOO root")
+
+	if err := os.Chdir("/tmp"); err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+
+	currentDir, err := os.Getwd()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+	log.WithFields(log.Fields{"currentDir": currentDir}).Info("OOOOOOO currentDir")
+
+	canChroot, err := chroot(root)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+	if !canChroot {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX chroot failed")
+	}
+
+	log.WithFields(log.Fields{"root": root}).Info("OOOOOOO finished chroot")
+
+	cmd := exec.Command("./trivy", "fs", "--format", "cyclonedx", "/")
+	cmd.Env = append(os.Environ(), "TMPDIR=.")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+
+	log.WithFields(log.Fields{"stdout": stdout.String(), "stderr": stderr.String()}).Info("OOOOOOO out in chroot ./trivy /")
+
+	cmd = exec.Command("/tmp/trivy", "fs", "--format", "cyclonedx", "/")
+	cmd.Env = append(os.Environ(), "TMPDIR=.")
+
+	if err := cmd.Run(); err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+
+	log.WithFields(log.Fields{"stdout": stdout.String(), "stderr": stderr.String()}).Info("OOOOOOO out in chroot /tmp/trivy /")
+
+	cmd = exec.Command("/tmp/trivy", "fs", "--format", "cyclonedx", ".")
+	cmd.Env = append(os.Environ(), "TMPDIR=.")
+
+	if err := cmd.Run(); err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+
+	log.WithFields(log.Fields{"stdout": stdout.String(), "stderr": stderr.String()}).Info("OOOOOOO out in chroot /tmp/trivy .")
+
+	cmd = exec.Command("./trivy", "fs", "--format", "cyclonedx", ".")
+	cmd.Env = append(os.Environ(), "TMPDIR=.")
+
+	if err := cmd.Run(); err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+
+	log.WithFields(log.Fields{"stdout": stdout.String(), "stderr": stderr.String()}).Info("OOOOOOO out in chroot ./trivy .")
+
+	if err := os.Chdir(dir); err != nil {
+		log.WithFields(log.Fields{"err": err}).Error("XXXXX error in chrootTrivy")
+	}
+}
+
 // TODO@@ use the SBOM to scan by trivy
 func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningRequest) (*share.ScanData, error) {
 	// Use Info log level so we by default log it's scanning
@@ -109,7 +218,8 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 			data.Error = share.ScanErrorCode_ScanErrNone
 		}
 	} else if c, ok := gInfo.activeContainers[req.ID]; ok {
-		log.WithFields(log.Fields{"c.info": c.info, "req": req, "c.pods": c.pods.String()}).Info("XXXXX scan the container")
+		// log.WithFields(log.Fields{"c.info": c.info, "req": req, "c.pods": c.pods.String()}).Info("XXXXX scan the container")
+		log.WithFields(log.Fields{"c.pid": c.pid}).Info("OOOOOO scan the container")
 		pid = c.pid
 		pidHost = (c.info.PidMode == "host")
 		if c.scanCache != nil {
@@ -184,56 +294,71 @@ func (ss *ScanService) ScanGetFiles(ctx context.Context, req *share.ScanRunningR
 	// scan trivy in the enforcer
 
 	if data.SbomMetadata != nil {
-		// RootDirectory is /proc/pid/root, while ns path is /proc/pid/ns
-		nsPath := filepath.Join(filepath.Dir(data.SbomMetadata.RootDirectory), "ns")
-		trivyPath := "/usr/local/bin/trivy"
-		namespaceExec := "/usr/local/bin/namespace_exec"
+		// memfd
+		memfd(data.SbomMetadata.RootDirectory)
 
-		args := []string{
-			"-p", nsPath,
-			"-b", trivyPath,
-			"-n", "mnt",
-			"--",
-			// "fs", "/", "--server", "0.0.0.0:8080", "--scanners", "vuln", "--format", "json",
-			"fs", ".", "--format", "cyclonedx",
-		}
+		// chroot
+		chrootTrivy(data.SbomMetadata.RootDirectory)
+		// trivyPath := "/usr/local/bin/namespaace_exec.sh"
+		// args := []string{system.NSActRun, "-f", trivyPath,
+		// 	"-m", global.SYS.GetMountNamespacePath(pid)}
+		// var errb, outb bytes.Buffer
 
-		log.WithFields(log.Fields{"args": args}).Info("OOOOOO args in scanRunningTrivy")
+		// log.WithFields(log.Fields{"args": args}).Info("OOOOOOO Running bench script")
+		// cmd := exec.Command(system.ExecNSTool, args...)
+		// cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		// cmd.Stdout = &outb
+		// cmd.Stderr = &errb
 
-		// TODO
-		cmd := exec.Command(namespaceExec, args...)
-		cwd, err := os.Getwd()
-		if err != nil {
-			log.WithFields(log.Fields{"err": err}).Error("OOOOOO error in scanRunningTrivy")
-		}
-		log.WithFields(log.Fields{"PWD": cwd}).Info("OOOOOO PWD in scanRunningTrivy")
-		log.WithFields(log.Fields{"TMPDIR": os.Getenv("TMPDIR")}).Info("OOOOOO TMPDIR in scanRunningTrivy")
+		// err := cmd.Start()
+		// if err != nil {
+		// 	log.WithFields(log.Fields{"error": err, "msg": errb.String()}).Error("Start")
+		// 	return nil, err
+		// }
+		// pgid := cmd.Process.Pid
+		// global.SYS.AddToolProcess(pgid, pid, "ns-run-script", trivyPath)
+		// err = cmd.Wait()
+		// global.SYS.RemoveToolProcess(pgid, false)
+		// log.WithFields(log.Fields{"out": outb.String(), "err": errb.String()}).Info("OOOOOOO out")/
 
-		// Get current program's user and group information
-		currentUser, err := user.Current()
-		if err != nil {
-			log.Fatalf("Failed to get current user: %v", err)
-		}
-		log.WithFields(log.Fields{"Current User": currentUser.Username, "UID": currentUser.Uid, "GID": currentUser.Gid}).Info("OOOOOO Current User in scanRunningTrivy")
+		// script := "/usr/local/bin/trivy --version"
 
-		// Check effective UID and GID
-		uid := os.Getuid()
-		gid := os.Getgid()
-		log.WithFields(log.Fields{"Effective UID": uid, "Effective GID": gid}).Info("OOOOOO Effective UID in scanRunningTrivy")
+		// log.WithFields(log.Fields{"script": script, "pid": pid}).Info("XXXXX in run script")
+		// file, err := os.CreateTemp(os.TempDir(), "script")
+		// if err != nil {
+		// 	log.WithFields(log.Fields{"err": err}).Error("XXXXX error in run script")
+		// }
+		// defer os.Remove(file.Name())
+		// if _, err = file.WriteString(script); err != nil {
+		// 	log.WithFields(log.Fields{"err": err}).Error("XXXXX error in run script")
+		// }
+		// if err = file.Close(); err != nil {
+		// 	log.WithFields(log.Fields{"err": err}).Error("XXXXX error in run script")
+		// }
 
-		cmd.Env = append(os.Environ(), "TMPDIR="+cwd)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
+		// args := []string{system.NSActRun, "-f", file.Name(),
+		// 	"-m", global.SYS.GetMountNamespacePath(pid),
+		// 	"-t", global.SYS.GetUtsNamespacePath(pid),
+		// 	"-c", global.SYS.GetIpcNamespacePath(pid),
+		// 	//"-u", global.SYS.GetUserNamespacePath(pid),
+		// 	"-p", global.SYS.GetPidNamespacePath(pid),
+		// 	"-n", global.SYS.GetNetNamespacePath(pid),
+		// 	"-g", global.SYS.GetCgroupNamespacePath(pid),
+		// }
+		// var errb, outb bytes.Buffer
 
-		if err := cmd.Run(); err != nil {
-			log.WithFields(log.Fields{"err": err, "stderr": stderr.String(), "stdout": stdout.String()}).Info("OOOOO err in scanRunningTrivy")
-			return nil, err
-		}
+		// cmd := exec.Command(system.ExecNSTool, args...)
+		// cmd.Stdout = &outb
+		// cmd.Stderr = &errb
 
-		log.WithFields(log.Fields{"stdout": stdout.String()}).Info("OOOOO stdout in scanRunningTrivy")
+		// err = cmd.Start()
+		// if err != nil {
+		// 	log.WithFields(log.Fields{"err": err}).Error("XXXXX error in run script")
+		// 	// return &share.ScanData{Error: share.ScanErrorCode_ScanErrFileSystem}, nil
+		// }
 
+		// err = cmd.Wait()
+		// log.WithFields(log.Fields{"out": outb.String(), "err": errb.String()}).Info("XXXXX out after nstool")
 	}
 
 	// if data.SbomMetadata != nil {
