@@ -314,7 +314,6 @@ func (s *ScanUtil) GetRunningPackages(id string, objType share.ScanObjectType, p
 		// SBOMMetadata.TrivyScanResult = append(SBOMMetadata.TrivyScanResult, trivyScanResult...)
 	}
 	SBOMMetadata.FilePaths = runningPackagePath
-	log.WithFields(log.Fields{"SBOMMetadata": SBOMMetadata}).Info("OOOOO works in GetRunningPackages")
 
 	if len(files) == 0 {
 		log.WithFields(log.Fields{"id": id}).Debug("Empty libary files")

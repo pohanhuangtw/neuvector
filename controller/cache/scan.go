@@ -209,7 +209,7 @@ func (t *scanTask) Handler(scanner string) scheduler.Action {
 	var ok bool
 	var info *scanInfo
 
-	cctx.ScanLog.WithFields(log.Fields{"id": t.id, "scanner": scanner}).Debug()
+	cctx.ScanLog.WithFields(log.Fields{"id": t.id, "scanner": scanner}).Info("OOOOOOO Handler for scanning")
 
 	scanMutexLock()
 	if info, ok = scanMap[t.id]; !ok {
@@ -314,7 +314,7 @@ func disableAutoScan() {
 }
 
 func scanObject(id string) {
-	cctx.ScanLog.WithFields(log.Fields{"id": id}).Debug("")
+	cctx.ScanLog.WithFields(log.Fields{"id": id}).Info("OOOOOOO scanObject")
 
 	var add, remove bool
 

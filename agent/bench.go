@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -1020,6 +1021,15 @@ func (b *Bench) doContainerCustomCheck(wls []*share.CLUSWorkload) {
 	log.Debug("")
 
 	for _, wl := range wls {
+		if resPath, err := getSBom(wl.Pid, wl.ID); err != nil {
+			log.WithFields(log.Fields{"error": err, "workload": wl}).Error("JW:")
+			if resPath != "" {
+				if dbgError := os.RemoveAll(resPath); dbgError != nil {
+					log.WithFields(log.Fields{"error": dbgError}).Debug("JW:")
+				}
+			}
+		}
+
 		if items := b.runCustomScript(wl); len(items) > 0 {
 			b.mux.Lock()
 			if b.allContainers.Contains(wl.ID) {
@@ -1052,7 +1062,7 @@ func (b *Bench) doHostCustomCheck() {
 	items := make([]*benchItem, 0)
 	for _, s := range scripts {
 		ret, msg, err := b.runScript(s.Script, 1)
-		log.WithFields(log.Fields{"Script": s.Name, "msg": msg}).Info("XXXXX run host script")
+		log.WithFields(log.Fields{"Script": s.Name, "msg": msg}).Debug("run host script")
 
 		item := &benchItem{
 			testNum: s.Name,
@@ -1174,7 +1184,6 @@ func (b *Bench) runScript(script string, pid int) (bool, string, error) {
 		return false, "Session ended", fmt.Errorf("Session ended")
 	}
 
-	log.WithFields(log.Fields{"script": script}).Info("XXXXX in run script")
 	file, err := os.CreateTemp(os.TempDir(), "script")
 	if err != nil {
 		return false, "file system error", err
@@ -1860,4 +1869,29 @@ func (t *TaskScanner) addScanTask(rootPid int, name, id, group string) {
 	t.lock.Lock()
 	t.queue = append(t.queue, task)
 	t.lock.Unlock()
+}
+
+func getSBom(pid int, id string) (string, error) {
+	var errb, outb bytes.Buffer
+
+	sbomPath := fmt.Sprintf("/tmp/neuvector/workloads/%s", id)
+	if err := os.MkdirAll(sbomPath, os.ModePerm); err != nil {
+		return "", fmt.Errorf("failed: %w", err)
+	}
+
+	cmd := exec.Command("bash", "/usr/local/bin/scripts/sbom.sh", strconv.Itoa(pid), filepath.Join(sbomPath, "sbom.json"))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+	err := cmd.Start()
+	if err != nil {
+		return sbomPath, fmt.Errorf("failed to start: %s, %w", errb.String(), err)
+	}
+	pgid := cmd.Process.Pid
+	global.SYS.AddToolProcess(pgid, pid, "ns-sbom", id)
+	defer global.SYS.RemoveToolProcess(pgid, false)
+	if err := cmd.Wait(); err != nil {
+		return sbomPath, fmt.Errorf("failed: %s, %w", errb.String(), err)
+	}
+	return sbomPath, nil
 }

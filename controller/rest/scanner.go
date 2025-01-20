@@ -96,7 +96,7 @@ func handlerScanConfigGet(w http.ResponseWriter, r *http.Request, ps httprouter.
 }
 
 func handlerScanWorkloadReq(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	log.WithFields(log.Fields{"URL": r.URL.String()}).Debug("")
+	log.WithFields(log.Fields{"URL": r.URL.String()}).Info("OOOOOOO handlerScanWorkloadReq")
 	defer r.Body.Close()
 
 	acc, login := getAccessControl(w, r, "")

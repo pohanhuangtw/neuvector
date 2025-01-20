@@ -381,6 +381,7 @@ func fillFusionVulFields(vul *share.ScanVulnerability, v *api.RESTVulnerability)
 	v.VectorsV3 = vul.VectorsV3
 	v.Description = vul.Description
 	v.Link = vul.Link
+	v.Severity = vul.Severity
 	v.Name = fmt.Sprintf("Found In Trivy:%s", vul.Name)
 	log.WithFields(log.Fields{"vul.PublishedDate": vul.PublishedDate}).Info("XXXXX fillFusionVulFields")
 	if pubTS, err := strconv.ParseInt(vul.PublishedDate, 0, 64); err == nil {
@@ -404,8 +405,6 @@ func fillFusionVulFields(vul *share.ScanVulnerability, v *api.RESTVulnerability)
 			v.Severity = share.VulnSeverityLow
 		}
 	}
-
-	v.FeedRating = v.Severity
 }
 
 func fillVulFields(vr *share.ScanVulnerability, v *api.RESTVulnerability) {

@@ -195,6 +195,7 @@ func ScanRunning(scanner string, agentID, id string, objType share.ScanObjectTyp
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	log.WithFields(log.Fields{"id": id, "agentID": agentID, "agentRPCEndPoint": ep}).Info("OOOOOOO ScanRunningRequest")
 	result, err := client.ScanRunning(ctx, &share.ScanRunningRequest{
 		Type: objType, ID: id, AgentID: agentID, AgentRPCEndPoint: ep,
 	})

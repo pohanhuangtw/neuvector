@@ -88,26 +88,12 @@ func namespaceAwareExec() error {
 		return err
 	}
 
-	// Read the binary into memory
-	bin, err := os.ReadFile(*binaryPath)
+	fd, err := unix.Open(*binaryPath, unix.O_RDONLY, 0)
 	if err != nil {
-		log.Fatalf("Failed to read binary (%s): %v", *binaryPath, err)
-		return err
-	}
-
-	// Create memfd for the binary
-	fd, err := unix.MemfdCreate("fdexe", unix.MFD_CLOEXEC)
-	if err != nil {
-		log.Fatalf("MemfdCreate failed: %v", err)
+		log.Fatalf("Failed to open binary: %v", err)
 		return err
 	}
 	defer unix.Close(fd)
-
-	// Write the binary data to the memfd
-	if _, err := unix.Write(fd, bin); err != nil {
-		log.Fatalf("Writing to memfd failed: %v", err)
-		return err
-	}
 
 	// Open the target mount namespace
 	namespaceFilePath := filepath.Join(*nsPath, *namespace)
@@ -123,9 +109,6 @@ func namespaceAwareExec() error {
 		log.Fatalf("Failed to set namespace: %v", err)
 		return err
 	}
-	uid := os.Getuid()
-	gid := os.Getgid()
-	log.WithFields(log.Fields{"Effective UID": uid, "Effective GID": gid}).Info("OOOOOO Effective UID in scanRunningTrivy")
 
 	// Exec via memfd (execveat)
 	if err := fsExecve(uintptr(fd), args, os.Environ()); err != nil {

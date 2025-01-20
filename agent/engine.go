@@ -1973,6 +1973,7 @@ func taskInterceptContainer(id string, info *container.ContainerMetaExtra) {
 func taskAddContainer(id string, info *container.ContainerMetaExtra) {
 	// This can be invoked from Docker socket and probe.
 	if _, ok := gInfoReadActiveContainer(id); ok {
+		// log.WithFields(log.Fields{"id": id, "info.Image": info.Image, "info.ID": info.ID, "info.Name": info.Name, "info.Pid": info.Pid}).Info("VVVVVVVV repeat taskAddContainer")
 		return
 	}
 
@@ -2049,6 +2050,9 @@ func taskAddContainer(id string, info *container.ContainerMetaExtra) {
 
 	gInfoLock()
 	gInfo.allContainers.Add(id)
+	// if info != nil {
+	// 	log.WithFields(log.Fields{"id": id, "info.Image": info.Image, "info.ID": info.ID, "info.Name": info.Name, "info.Pid": info.Pid}).Info("OOOOOOO add all containers")
+	// }
 	gInfoUnlock()
 
 	if !info.Running {
@@ -2077,6 +2081,7 @@ func taskAddContainer(id string, info *container.ContainerMetaExtra) {
 	}
 	gInfoLock()
 	gInfo.activeContainers[id] = c
+	log.WithFields(log.Fields{"id": id, "info.Image": info.Image, "info.ID": info.ID, "info.Name": info.Name, "info.Pid": info.Pid}).Info("OOOOOOO add containers")
 	gInfo.activePid2ID[c.pid] = id
 	gInfoUnlock()
 

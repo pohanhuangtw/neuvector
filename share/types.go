@@ -64,6 +64,7 @@ const (
 	VulnSeverityHigh     string = "High"
 	VulnSeverityMedium   string = "Medium"
 	VulnSeverityLow      string = "Low"
+	VulnSeverityNone     string = "None"
 )
 
 const (

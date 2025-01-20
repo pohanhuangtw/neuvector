@@ -1362,6 +1362,7 @@ func workloadUpdate(nType cluster.ClusterNotifyType, key string, value []byte) {
 		var wl share.CLUSWorkload
 		_ = json.Unmarshal(value, &wl)
 
+		// check here TODO
 		// Check if it's NeuVector containers first
 		if wl.PlatformRole == container.PlatformContainerNeuVector {
 			// STOP event is always sent. In case we miss it, we should handle the key deletion
