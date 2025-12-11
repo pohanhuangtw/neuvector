@@ -66,7 +66,7 @@ func GenerateRegoCode(rule *share.CLUSAdmissionRule) string {
 	packageName := fmt.Sprintf("package neuvector_policy_%d", rule.ID)
 	rego = append(rego, packageName)
 
-	rego = append(rego, printSpec())
+	rego = append(rego, PrintSpec())
 
 	// main
 	mainFunc := `
@@ -275,7 +275,7 @@ func parseQuotedSimpleRegexString(input string) []string {
 	return quotedString
 }
 
-func printSpec() string {
+func PrintSpec() string {
 
 	rego := `
 specification = spec {
